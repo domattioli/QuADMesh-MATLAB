@@ -181,7 +181,7 @@ end
                         % Ask for a file or triangulation to read.
                         askInput  = questdlg('Do you have an input for CHILmesh?',...
                             'Zero Input Dialog','Yes','No','Yes');
-                        noInput	= True;
+                        noInput	= true;
                         attempt = 1;
                         while noInput           	% Ask for an input.
                             if strcmp('Yes',askInput) 	% "Yes" input.
@@ -721,7 +721,7 @@ end
         % Perform Edge Flip
         function CM	= edgeFlip(CM,EdgeIDs)
             %EDGEFLIP Flips edges of two adjacent triangles.
-            %   newT = EDGEFLIP(CM,EdgeIDs) 
+            %   newT = EDGEFLIP(CM,EdgeIDs)
             %
             %   Example:
             %
@@ -733,19 +733,19 @@ end
                 return
             end
             
-%             % Get adjacencies of EdgeIDs.
-%             numEdgeIDs  = numel(EdgeIDs);
-%             numEdges	= size(CM.ConnectivityList,2);
-%             edge2ElemIDs	= CM.edge2Elem(EdgeIDs);        % ElemIDs of each edge. * Remains unchanged.
-%             edge2VertIDs	= CM.edge2Vert(EdgeIDs);        % VertIDs of each edge. * Change this 
-%             
-%             % Get adjacencies of adjacent elems.
-%             
-%             elem2EdgeIDs	= reshape(CM.elem2Edge(edge2ElemIDs')'...
-%                 ,numEdges*2,numEdgeIDs);	% EdgeIDs of edge2ElemIDs.
-%             
-%             % Change connectivity (elem2Vert) of edge2Elems.
-%             
+            %             % Get adjacencies of EdgeIDs.
+            %             numEdgeIDs  = numel(EdgeIDs);
+            %             numEdges	= size(CM.ConnectivityList,2);
+            %             edge2ElemIDs	= CM.edge2Elem(EdgeIDs);        % ElemIDs of each edge. * Remains unchanged.
+            %             edge2VertIDs	= CM.edge2Vert(EdgeIDs);        % VertIDs of each edge. * Change this
+            %
+            %             % Get adjacencies of adjacent elems.
+            %
+            %             elem2EdgeIDs	= reshape(CM.elem2Edge(edge2ElemIDs')'...
+            %                 ,numEdges*2,numEdgeIDs);	% EdgeIDs of edge2ElemIDs.
+            %
+            %             % Change connectivity (elem2Vert) of edge2Elems.
+            %
         end
         
         % Identify Layers of Mesh
@@ -1091,7 +1091,7 @@ end
         % Midpoint of Edge
         function [X,Y,Z]    = edgeMidpoint(CM,EdgeIDs)
             %EDGEMIDPOINT Coordinates of an edge's midpoint in mesh.
-            %   [X,Y,Z] = EDGEMIDPOINT(M,EdgeIDs) returns the euclidean
+            %   [X,Y,Z] = EDGEMIDPOINT(CM,EdgeIDs) returns the euclidean
             %   coordinates of the midpoint of edges in the mesh, where
             %   EdgeIDs is an Ex1 or 1xE vector of indices or logicals with
             %   respect to CM.Adjacencies.Edge2Vert.
@@ -1741,7 +1741,9 @@ end
             %   TRIANGULATION/SIZE.
             %==============================================================
             
-            nElems	= CM.nElems;
+            nElems  = CM.nElems;
+%             nElems	= size(CM.ConnectivityList,1);
+%             set(CM,'nElems',nElems);                % Update CM accordingly.
         end
         
         % Number of Layers
@@ -1766,7 +1768,9 @@ end
             %   See also CHILMESH, CHILMESH/NUMEDGES, CHILMESH/NUMELEMS.
             %==============================================================
             
-            nVerts	= CM.nVerts;
+            nVerts  = CM.nVerts;
+%             nVerts	= size(CM.Points,1);
+%             set(CM,'nVerts',nVerts);                % Update CM accordingly.
         end
         
         %         function Points = get.Points(CM)
