@@ -1,0 +1,84 @@
+function [Domain,newMesh]	= removeTrianglesFunc(CM,Domain,subDomain,newMesh,...
+        canRemoveEdges,iLayer,remainingElemIDs,bEdgeIDs,bVertIDs)
+%REMOVETRIANGLESFUNC Removes triangles remaining in Domain's iLayer.
+%   [Domain,newMesh]	= removeTrianglesFunc(CM,Domain,subDomain,newMesh,
+%   canRemoveEdges,iLayer,remainingElemIDs,bEdgeIDs,bVertIDs) returns _
+%   
+%   See also: EDGEBISECTION, EDGEINSERTION, EDGEREMOVAL, TRI2QUADROUTINE.
+%==========================================================================
+
+%%% For real-team plotting: show all remaining tris.
+hold on;
+Domain.plot(remainingElemIDs,'elemcolor','c');
+
+% Functionality of triangle removal operation depends on layer of mesh...
+if iLayer == 1 && CM.nLayers == Domain.nLayers
+    onMeshBoundary	= true;
+else
+    onMeshBoundary	= false;
+end
+% and depends on whether the user will allow removal of mesh boundary edges.
+
+% Loop through each remaining tri and determine the neccessary function
+% that will convert the tri into a quad of remove it from the mesh entirely.
+ibEdgeIDs	= 1:3;                                  % Index to edges of tri.
+for idx	= 1:length(remainingElemIDs)
+    % Get triangle adjacencies.
+    tElemID	= remainingElemIDs(idx);                % Indexed wrt Domain.
+    tConn	= Domain.ConnectivityList(tElemID,:);
+    tEdgeIDs	= Domain.elem2Edge(tElemID)';       % Edges of tri.
+    tEdge2Vert	= Domain.edge2Vert(tEdgeIDs);       % Verts of ^.
+    tElem2Elem	= Domain.edge2Elem(tEdgeIDs);       % Neighbors of tri.
+    
+    %%% For real-team plotting: show current tri.
+    Domain.plot(tElemID,'elemcolor','g');
+    
+    % Accomodation is based on number of triangle's edges on boundary.
+    itbEdgeIDs	= ibEdgeIDs(sum(reshape(ismember(...
+        [tEdge2Vert; fliplr(tEdge2Vert)],...
+        subDomain.edge2Vert(bEdgeIDs),'rows'),3,2),2) > 0);
+    n_edges	= numel(itbEdgeIDs);                    % Num of boundary edges.
+    pause
+    %%% Edge Bisection ----------------------------------------------------
+    if onMeshBoundary && n_edges == 1 && ~canRemoveEdges
+        % Project a new point from boundary to form a quad.
+%         [Domain,newMesh] = edgeBisection(1,);
+        
+    elseif ~onMeshBoundary && n_edges >= 1
+        % Bisect one of the tris edges. None are on the mesh boundary.
+        [Domain,newMesh] = edgeBisection(2,Domain,newMesh,iLayer,...
+            tElemID,tConn,tEdgeIDs,tEdge2Vert,tElem2Elem,itbEdgeIDs);
+        
+    %%% Edge Insertion ----------------------------------------------------
+    elseif onMeshBoundary && n_edges == 0
+        % Insert edge at lone point on mesh boundary to split tri into quad.
+%         [Domain,newMesh] = edgeInsertion(1,);
+        
+    elseif onMeshBoundary && n_edges == 2
+        % Insert edge at point common to both mesh boundary edges to split tri into quad.
+%         [Domain,newMesh] = edgeInsertion(2,);
+        
+    elseif onMeshBoundary && n_edges == 3
+        % Insert edge at any one point of tri to split into quad.
+%         [Domain,newMesh] = edgeInsertion(3,);
+        error('on mesh boundary and all three edges are boundary edges');
+        
+    elseif ~onMeshBoundary && n_edges == 0
+        % Insert edge
+        %%% Only one point of tri is on layer boundary so we insert an edge
+        %%% to split this point into an edge to form a quad.
+%         [Domain,newMesh] = edgeInsertion(4,);
+        
+    %%% Edge Removal ------------------------------------------------------
+    elseif onMeshBoundary && n_edges == 1 && canRemoveEdges	% Edge Removal.
+        %%% Only one edge on the mesh boundary and the user will allow for
+        %%% the removal of edgesl therefore this triangle is squeezed out.
+%         [Domain,newMesh] = edgeRemoval(2,);
+        
+    else
+        error('impossible criterion?');
+    end
+    
+    %%% For real-team plotting: cover ui purple tri
+    Domain.plot(tElemID,'elemcolor','m');   pause
+end

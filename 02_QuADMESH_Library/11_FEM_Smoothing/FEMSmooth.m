@@ -1,0 +1,169 @@
+function CM = FEMSmooth(CM)
+%FEMSMOOTH Solves equations for optimal location of verts in CM.
+%   CM = FEMSMOOTH(CM) returns CHILmesh object CM following the smoothing
+%   of all vertices comprising the connectivity of element in the mesh. All
+%   interior vertices of quads are smoothed toward 90 degrees and all
+%   interior vertices of triangles are smoothed toward 60 degrees.
+%   
+%   Note: FEMSMOOTH does not account for z-coordinates of the relocated
+%   nodes, although it probably should...
+%   Note: FEMSMOOTHER is a direct solve for smoothing triangulations edited
+%   by kjr,und 2017.
+%   
+%   See also: ,MCSMOOTH, POSTPROCESSROUTINE.
+%===========================================================================
+
+% Identify tris, quads in mesh.
+[iT,iQ]	= CM.elemType;
+
+% Set numerical smoothing parameters
+mu	= 1;
+kinf= 10^12;
+
+% Construct element stiffness matrix
+D	= 2*eye(2);
+Q	= [ -1 -mu; mu -1 ];
+T	= [ -1 -sqrt(3); sqrt(3) -1 ];
+O	= sparse(2,2);
+ke{1}	= {D,T,T'; T',D,T; T,T',D};
+ke{2}	= {D,Q,O,Q'; Q',D,Q,O; O,Q',D,Q; Q,O,Q',D}; %--not used
+
+%%% Global assembly
+I	= (1:2:2*CM.nVerts)';
+
+%% Loops for triangles (unrolled inner loops for speed).
+if ~isempty(iT)
+    % Compute lds (whatever that is) and exploit that it is repeated.
+    jjj	= 0;
+    for r	= 1:3
+        for s	= 1:3
+            jjj = jjj+1;
+            ld	= ke{1}{r,s};
+            ld	= ld(:);
+            Tlds(jjj:jjj+3,1)	= ld;
+            jjj	= jjj+3;
+        end
+    end
+    
+    % Perform global assembly.
+    triSpace= 36;
+    Txgs	= zeros(triSpace*length(iT),1);
+    Tygs	= Txgs;
+    jjj = 0;
+    for ElemID	= iT(1):iT(end)
+        VertID	= CM.ConnectivityList(ElemID,1:3);
+        i	= I(VertID(:));
+        j	= I(VertID(:));
+        
+        % Compute x-coordinates.
+        jjj = jjj+1;
+        ttt1	= repmat([i(1),i(1),i(1)+1,i(1)+1],3,1);
+        ttt2	= repmat([i(2),i(2),i(2)+1,i(2)+1],3,1);
+        ttt3	= repmat([i(3),i(3),i(3)+1,i(3)+1],3,1);
+        ttt	= [ttt1,ttt2,ttt3];
+        Txgs(jjj:jjj+(triSpace-1),1)	= reshape(ttt',[],1);
+        
+        % Compute y-coordinates.
+        zzz1	= [j,j+1,j,j+1];
+        zzz	= [zzz1,zzz1,zzz1];
+        Tygs(jjj:jjj+(triSpace-1),1)	= reshape(zzz',[],1);
+        jjj = jjj+(triSpace-1);
+    end
+    Tlds= repmat(Tlds,[length(Txgs)/triSpace,1]);
+    TK	= sparse(Txgs,Tygs,Tlds);
+else                                                % Create an empty sparse.
+    TK  = sparse(1,1,0);
+end
+
+%% Loops for quads (unrolled inner loops for speed).
+if ~isempty(iQ)
+    % Compute lds (whatever that is) and exploit that it is repeated.
+    jjj	= 0;
+    for r	= 1:4
+        for s	= 1:4
+            jjj = jjj+1;
+            ld	= ke{2}{r,s};
+            ld	= ld(:);
+            Qlds(jjj:jjj+3,1)	= ld;
+            jjj	= jjj+3;
+        end
+    end
+    
+    % Perform global assembly.
+    quadSpace   = 64;
+    Qxgs	= zeros(quadSpace*length(iQ),1);
+    Qygs	= Qxgs;
+    jjj	= 0;
+    for ElemID	= iQ(1):iQ(end)
+        VertID	= CM.ConnectivityList(ElemID,:);
+        i	= I(VertID(:));
+        j	= I(VertID(:));
+        
+        % Compute x-coordinates.
+        jjj = jjj+1;
+        ttt1	= repmat([i(1),i(1),i(1)+1,i(1)+1],4,1);
+        ttt2	= repmat([i(2),i(2),i(2)+1,i(2)+1],4,1);
+        ttt3	= repmat([i(3),i(3),i(3)+1,i(3)+1],4,1);
+        ttt4	= repmat([i(4),i(4),i(4)+1,i(4)+1],4,1);
+        ttt	= [ttt1,ttt2,ttt3,ttt4];
+        Qxgs(jjj:jjj+(quadSpace-1),1)	= reshape(ttt',[],1);
+        
+        % Compute y-coordinates.
+        zzz1	= [j,j+1,j,j+1];
+        zzz	= [zzz1,zzz1,zzz1,zzz1];
+        Qygs(jjj:jjj+(quadSpace-1),1)	= reshape(zzz',[],1);
+        jjj = jjj+(quadSpace-1);
+    end
+    Qlds= repmat(Qlds,[length(Qxgs)/quadSpace,1]);
+    QK	= sparse(Qxgs,Qygs,Qlds);
+else                                                % Create an empty sparse.
+    QK  = sparse(zeros(size(TK)));
+end
+
+%% Enforce BCs.
+K	= TK + QK;
+iFixed	= unique(CM.boundaryVerts);
+F	= sparse(2*CM.nVerts,1);
+
+% iFixed is small so assembly approach is trivial.
+for r	= 1:length(iFixed)
+    i	= I(iFixed(r));
+    F(i:i+1,1)	= F(i:i+1,1) + kinf*CM.Points(iFixed(r),1:2)';
+    K(i,i)	= kinf;
+    K(i+1,i+1)	= kinf;
+end
+
+% %%% Test for Ethan---------------------------------------------------------
+% h = msgbox('Press enter to plot mesh as-is in new figure:');
+% waitfor(h); figure; CM.plot; 
+% h = msgbox('Press enter to plot boundary vertices of mesh in red');
+% waitfor(h); CM.plotPoint(CM.Layers.OV{1});  
+% h = msgbox('Press enter to plot interior vertices of mesh in blue');
+% nodeList    = (1:size(CM.Points,1))';  
+% nodeList    = nodeList(~ismember(nodeList,CM.Layers.OV{1}));
+% waitfor(h); CM.plotPoint(nodeList,'color','b');
+% h = msgbox('Notice that all plotted points are on visible vertices');
+% waitfor(h); 
+% %%% Test for Ethan---------------------------------------------------------
+% 
+% Solve for new nodal positions and save to mesh points
+c	= K\F;
+CM.Points(:,1:2)	= reshape(c,2,CM.nVerts)';
+% 
+% %%% Test for Ethan---------------------------------------------------------
+% h = msgbox('Press enter to plot smoothed mesh new figure:');
+% waitfor(h); figure; CM.plot;
+% h = msgbox('Press enter to plot boundary vertices of smoothed mesh in red');
+% waitfor(h); CM.plotPoint(CM.Layers.OV{1});
+% h = msgbox('Press enter to plot interior vertices of smoothed mesh in blue');
+% nodeList    = (1:size(CM.Points,1))';
+% nodeList    = nodeList(~ismember(nodeList,CM.Layers.OV{1}));
+% waitfor(h); CM.plotPoint(nodeList,'color','b');
+% h = msgbox('Check out that guy at <0,0>');
+% waitfor(h);
+% close; close; % Closes last two figures in test for ethan.
+% %%% Test for Ethan---------------------------------------------------------
+
+% Remove any points that have been added to <0,0>.
+% iCMPoints   = CM.Points(:,1) == 0 & CM.Points(:,2) == 0 & CM.Points(:,3) == 0;
+% CM = RemoveUnusedVertices(CM,iCMPoints);

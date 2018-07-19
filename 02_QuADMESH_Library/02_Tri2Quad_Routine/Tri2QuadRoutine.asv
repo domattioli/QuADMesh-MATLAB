@@ -1,0 +1,60 @@
+function [CM,Domain] = Tri2QuadRoutine(CM,Domain,canRemoveEdges,plotProgress)
+%TRI2QUADROUTINE Creates a quadrangular or mixed-element mesh.
+%   [CM,Domain]	= TRI2QUADROUTINE(CM,Domain,canRemoveEdges) returns
+%
+%   See also: MAIN, CREATEQUADDOMAIN, POSTPROCESSROUTINE.
+%==========================================================================
+tic
+% Prepare for plotting.
+if plotProgress
+    cla;                                            % Redraw mesh as patch.
+    Domain.plot(1:Domain.nElems,'elemcolor',[1 1 1]);
+    mainAxis	= gca;
+end
+
+% Create newMesh because continuously updating Domain with the new quad
+% elements could lead to code errors, i.e. incorrect adjacencies.
+% Note: This is inefficient and can be improved when this is rewritten.
+newMesh     = struct('Points',Domain.Points,'ConnectivityList',[]);
+
+% For each layer in mesh, identify edges for removal to create quads.
+for iLayer	= Domain.nLayers:-1:1                	% Work outward.
+    %% 1. Identify every other edge along each path in iLayer.
+    [Domain,subDomain,ElemIDs,~,bEdgeIDs,bVertIDs,removedEdgeIDs]	=...
+        identifyEdgesFun_v2(Domain,iLayer);
+    
+    %% 2. Remove All Indexed Edges (Merge Triangles) To Create Quads.
+    % Get elements neighboring each EdgeID.
+    pairElemIDs	= subDomain.edge2Elem(removedEdgeIDs(removedEdgeIDs > 0));
+    
+    % Merge triangles indexed by pairElemIDs across the shared edge(s).
+    newMesh.ConnectivityList= [newMesh.ConnectivityList;...
+        mergeTrianglesFun(subDomain,pairElemIDs)];
+    
+    %% 3. Add/Remove Edges to Create Quads/Remove Remaining Tris.
+    % Identify remaining triangles in path.
+    idx_remainingElemIDs	= ~ismember(ElemIDs,ElemIDs(pairElemIDs));
+    remainingElemIDs	= ElemIDs(idx_remainingElemIDs);
+    
+    % Plot progress.
+    if any(removedEdgeIDs > 0) && plotProgress
+        mainAxis	= plotQuadProgress(mainAxis,Domain,subDomain,iLayer,removedEdgeIDs);
+    end
+    
+    % Convert remaining triangles to quads or remove them from mesh.
+    [Domain,newMesh]	= removeTrianglesFun(CM,Domain,subDomain,newMesh,...
+        canRemoveEdges,iLayer,remainingElemIDs,bEdgeIDs,bVertIDs,plotProgress);
+    newMesh.Points	= Domain.Points;
+    toc
+end
+
+%% 4. Build Global Quad CHILmesh Object for Post-Processing.
+CM  = CHILmesh([newMesh.ConnectivityList;...        % Append triangles below quads.
+    CM.ConnectivityList(:,[1,1:3])],newMesh.Points);
+usedVertIDs = unique(CM.elem2Vert);                 % Remove unused vertices.
+unusedVertIDs   = setdiff(1:CM.nVerts,usedVertIDs);
+CM	= RemoveUnusedVertices(CM,unusedVertIDs);
+
+if plotProgress
+    cla; CM.plot;
+end

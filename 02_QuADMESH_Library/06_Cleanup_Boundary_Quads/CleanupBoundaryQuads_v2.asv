@@ -1,0 +1,281 @@
+function [CM,removedVertIDs]	= CleanupBoundaryQuads_v2(CM,removedVertIDs,canRemoveEdges,plotProgress)
+%CLEANUPBOUNDARYQUADS Removes unsmoothable quads on mesh boundaries.
+%   [CM,removedVertIDs] = CLEANUPBOUNDARYQUADS(CM,removedVertIDs,
+%   canRemoveEdges,plotProgress) returns...
+%
+%   These quads are identified as those on the boundary with interior
+%   angles exceeding 134 degrees defined by two boundary edges. These
+%   quads will have a quality of zero by our definition and cannot be
+%   smoothed to a better quality since the angle defined by the
+%   boundary edges is unsmoothable. Some additional work should include
+%   a capability for removing or refining quads with 4 nodes on the
+%   boundary.
+%
+%   See also: POSTPROCESSROUTINE.
+%==========================================================================
+
+% Keep track of vertices removed from mesh.
+removedVertIDs  = [removedVertIDs; zeros(length(CM.Layers.OV{1}),1)];
+iremovedVertIDs = find(removedVertIDs == 0,1,'first');
+
+% Depending on user-input, remove degenerate quads or correct their geometry.
+if canRemoveEdges
+    % Collapse degenerate, unsmoothable quads along mesh boundary.
+    exitCriterionMet = false;
+    while ~exitCriterionMet
+        % Get all boundary edges and their quads.
+        bEdgeIDs    = CM.boundaryEdges;
+        bVertIDs    = CM.boundaryVerts;
+        bElemIDs    = CM.Layers.OE{1};
+        
+        
+        % Group bElemIDs by the number of boundary edges each has.
+        bElem2EdgeIDs	= CM.elem2Edge(bElemIDs);
+        [ibElemIDs,c]   = find(ismember(bElem2EdgeIDs,bEdgeIDs));
+        [sibElemIDs,ic] = sort(ibElemIDs);
+        usibElemIDs     = unique(sibElemIDs);
+        bElem2bEdgeIDs	= mat2cell(c(ic),diff([0; find(diff(sibElemIDs)); size(sibElemIDs,1)]),1);
+        ibElem2bEdgeIDs = cellfun(@length,bElem2bEdgeIDs) > 1;
+        
+        % Identify all bElemIDs with 2 adjacent edges on the mesh boundary.
+        potentialCandidates	= bElemIDs(usibElemIDs(ibElem2bEdgeIDs));
+        potentialCandidatesbEdges	= bElem2bEdgeIDs(ibElem2bEdgeIDs);
+        nPossibleCandidates	= length(potentialCandidates)
+        usedQuads   = false(CM.nElems,1);
+        ElemIDsCBQ	= zeros(nPossibleCandidates,1);
+        VertIDsCBQ	= ElemIDsCBQ;
+        sideVertIDsCBQ	= zeros(nPossibleCandidates,2);
+        sideElemIDsCBQ  = cell(nPossibleCandidates,2);
+        ElemIDsTBQ	= ElemIDsCBQ;
+        VertIDsTBQ	= sideVertIDsCBQ;
+        sideVertIDsTBQ	= sideVertIDsCBQ;
+        sideElemIDsTBQ  = sideElemIDsCBQ;
+        for idx = 1:nPossibleCandidates
+            % Select next available quad.
+            currentQuad	= potentialCandidates(idx);
+            if currentQuad == 43928;
+                jdx = 1;
+            end
+            currentQuadConn	= CM.elem2Vert(currentQuad);
+            icurrentQuadEdges	= potentialCandidatesbEdges{idx};
+%             cla;CM.plot;CM.plotElem(currentQuad);CM.plotPoint(currentQuadConn);
+            % Check if quad is already being used.
+            if usedQuads(currentQuad)           	% Quad already used.
+                continue
+            end
+            
+            % Determine if the boundary edges of the candidate quad are adjacent.
+            edgeIndices = ismember(1:4,icurrentQuadEdges);
+            num_bEdges	= length(icurrentQuadEdges);
+            switch num_bEdges
+                case 2                              % Quad has 2 bEdgeIDs.
+                    num_adj_bEdges	= 2;
+                    if edgeIndices(1) && edgeIndices(2)
+                        iicurrentQuadEdges	= 1;
+                    elseif edgeIndices(2) && edgeIndices(3)
+                        iicurrentQuadEdges	= 2;
+                    elseif edgeIndices(3) && edgeIndices(4)
+                        iicurrentQuadEdges	= 3;
+                    elseif edgeIndices(4) && edgeIndices(1)
+                        iicurrentQuadEdges	= 4;
+                    else                            % bEdges aren't adjacent.
+                        continue                    % Quad is ineligible.
+                    end
+                case 3                              % Quad has 3 bEdgeIDs.
+                    num_adj_bEdges	= 3;
+                    if edgeIndices([1 2 4])
+                        iicurrentQuadEdges	= 1;
+                    elseif edgeIndices(1:3)
+                        iicurrentQuadEdges	= 2;
+                    elseif edgeIndices(2:4)
+                        iicurrentQuadEdges	= 3;
+                    elseif edgeIndices([3 4 1])
+                        iicurrentQuadEdges	= 4;
+                    else                            % bEdges aren't adjacent.
+                        continue                    % Quad is ineligible.
+                    end
+                case 4                              % Quad has 4 bEdgeIDs.
+                    % Do nothing?
+                otherwise                           % Quad's bEdgeIDs are not adjacent.
+                    continue
+            end
+            
+            % Disqualify elements whose itheta does not meet threshold of
+            % 135deg and/or isn't on the domain boundary.
+            theta	= CM.interiorAngles(currentQuad);
+            
+            itheta  = theta > 135.00 & ismember(currentQuadConn,bVertIDs);
+            if find(itheta) ~= iicurrentQuadEdges   % 135 deg angle isnt between boundary edges.
+                continue
+            end
+            if sum(itheta) > 1
+                % Choose the Angle with 1 adjacent elem.
+                itheta	= (cellfun(@length,CM.vert2Elem('vertids',currentQuadConn)) == 1)'...
+                    & itheta;
+            end
+            if all(itheta == 0)
+                continue                            % Quad ineligible.
+            end
+            
+            % Check if any of currentQuad's adjacent elems are being used.
+            currentQuadEdges= CM.elem2Edge(currentQuad);
+            edge2VertIDs	= CM.edge2Vert(currentQuadEdges);
+            valenceElemIDs	= [CM.vert2Elem('vertIDs',edge2VertIDs(:,1),'store','matrix')...
+                CM.vert2Elem('vertIDs',edge2VertIDs(:,2),'store','matrix')];
+            valenceElemIDs(~edgeIndices,:)   = [];
+            adjacentQuads   = unique(valenceElemIDs(valenceElemIDs ~=0));
+            if any(usedQuads(adjacentQuads))        % Quad is ineligible.
+                continue
+            else
+                usedQuads(adjacentQuads)	= true; % Flag for next for-iters.
+            end
+            
+            % Assemble relevant adjacency lists for eligible quad.
+            if num_adj_bEdges == 2                  % Prep quad for CBQ.
+                ElemIDsCBQ(idx)	= currentQuad;
+                VertIDsCBQ(idx)	= CM.ConnectivityList(currentQuad,itheta);
+                iSides  = find(sum(ismember(edge2VertIDs,VertIDsCBQ(idx)),2) > 0);
+                iSide1  = iSides(1);
+                iSide2  = iSides(~ismember(iSides,iSide1));
+                sideVertIDsCBQ(idx,:)	= [...
+                    edge2VertIDs(iSide1,~ismember(edge2VertIDs(iSide1,:),VertIDsCBQ(idx))),...
+                    edge2VertIDs(iSide2,~ismember(edge2VertIDs(iSide2,:),VertIDsCBQ(idx)))];
+                sideElemIDsCBQ(idx,:)	= {...
+                    CM.vert2Elem('vertIDs',sideVertIDsCBQ(idx,1),'store','matrix')...
+                    CM.vert2Elem('vertIDs',sideVertIDsCBQ(idx,2),'store','matrix')};
+                sideElemIDsCBQ{idx,1}(ismember(sideElemIDsCBQ{idx,1},ElemIDsCBQ(idx)))	= [];
+                sideElemIDsCBQ{idx,2}(ismember(sideElemIDsCBQ{idx,2},ElemIDsCBQ(idx)))	= [];
+                
+            elseif num_adj_bEdges == 3              % Prep quad for TBQ.
+%                 ElemIDsTBQ(idx)	= currentQuad;
+%                 VertIDsTBQ(idx,:)   = edge2VertIDs(iicurrentQuadEdges,:);
+%                 iSides  = find(sum(ismember(edge2VertIDs,VertIDsTBQ(idx,1)),2) > 0);
+%                 sideVertIDsTBQ(idx,1)	= edge2VertIDs(iSides(1),~ismember(...
+%                     edge2VertIDs(iSides(1),:),VertIDsTBQ(idx,1)));
+%                 sideVertIDsTBQ(idx,2)	= setdiff(currentQuadConn,...
+%                     [VertIDsTBQ(idx,:),sideVertIDsTBQ(idx,1)]);
+%                 sideElemIDsTBQ(idx,:)	= {...
+%                     CM.vert2Elem('vertIDs',sideVertIDsTBQ(idx,1),'store','matrix')...
+%                     CM.vert2Elem('vertIDs',sideVertIDsTBQ(idx,2),'store','matrix')};
+%                 sideElemIDsTBQ{idx,1}(ismember(sideElemIDsTBQ{idx,1},ElemIDsTBQ(idx)))	= [];
+%                 sideElemIDsTBQ{idx,2}(ismember(sideElemIDsTBQ{idx,2},ElemIDsTBQ(idx)))	= [];
+                
+            else % 4 adjacent boundary edges?
+                errordlg('quad w 4 boundary edges and an angle exceeding 135deg?');
+            end
+        end
+        
+        % Remove ineligible quads from CBQ lists.
+        ieligibleElemIDs	= ElemIDsCBQ ~= 0;
+        eligibleElemIDs     = ElemIDsCBQ(ieligibleElemIDs);
+        if isempty(eligibleElemIDs)
+            CBQfinished	= true;
+        else
+            % Perform CleanupBoundaryQuads Subroutine.
+            CBQfinished	= false;
+            eligibleMiddleVertIDs	= VertIDsCBQ(ieligibleElemIDs);
+            eligibleSideVertIDs	= sideVertIDsCBQ(ieligibleElemIDs,:);
+            eligibleSideElemIDs	= sideElemIDsCBQ(ieligibleElemIDs,:);
+            [CM,rv]	= subroutineCleanupBoundaryQuads(CM,eligibleElemIDs,...
+                eligibleMiddleVertIDs,eligibleSideVertIDs,eligibleSideElemIDs);
+            next_iremovedVertIDs    = iremovedVertIDs+(length(eligibleElemIDs)*2);
+            removedVertIDs(iremovedVertIDs:next_iremovedVertIDs-1)	= reshape(rv,1,[]);
+            iremovedVertIDs	= iremovedVertIDs+next_iremovedVertIDs;
+        end
+        
+        % Remove ineligible quads from TBQ lists.
+%         ieligibleElemIDs	= ElemIDsTBQ ~= 0;
+%         eligibleElemIDs     = ElemIDsTBQ(ieligibleElemIDs);
+            eligibleElemIDs = [];
+        if isempty(eligibleElemIDs) && CBQfinished
+            exitCriterionMet	= true;
+            continue
+        else
+%             % Perform TruncateBoundaryQuads Subroutine.
+%             eligibleMiddleVertIDs	= VertIDsTBQ(ieligibleElemIDs,:);
+%             eligibleSideVertIDs	= sideVertIDsTBQ(ieligibleElemIDs,:);
+%             eligibleSideElemIDs	= sideElemIDsTBQ(ieligibleElemIDs,:);
+%             [CM,rv]	= subroutineTruncateBoundaryQuads(CM,eligibleElemIDs,...
+%                 eligibleMiddleVertIDs,eligibleSideVertIDs,eligibleSideElemIDs);
+%             next_iremovedVertIDs    = iremovedVertIDs+(length(eligibleElemIDs)*2);
+%             removedVertIDs(iremovedVertIDs:next_iremovedVertIDs-1)  = reshape(rv,1,[]);
+%             iremovedVertIDs	= iremovedVertIDs+next_iremovedVertIDs;
+        end
+    end
+    
+    % Update Outputs.
+    removedVertIDs(removedVertIDs == 0)	= [];
+end
+end
+
+function [CM,removedVertIDs]	= subroutineCleanupBoundaryQuads(CM,eligibleElemIDs,...
+    eligibleMiddleVertIDs,eligibleSideVertIDs,eligibleSideElemIDs)
+%CLEANUPBOUNDARYQUADSSUBROUTINE Removes quads with 3 boundary edges and an
+%obtuse angle between one pair of the edges.
+
+%   See also: CLEANUPBOUNDARYQUADS, TRUNCATEBOUNDARYQUADSSUBROUTINE.
+%==========================================================================
+
+% Get connectivity of quad(s) on each side.
+iside1ElemIDs   = cell2mat(eligibleSideElemIDs(:,1)')';
+iside2ElemIDs   = cell2mat(eligibleSideElemIDs(:,2)')';
+side1Conn   = CM.elem2Vert(iside1ElemIDs);
+side2Conn   = CM.elem2Vert(iside2ElemIDs);
+
+% Index to common vertices of quad's neighbors on each side.
+[c1,r1]	= find(ismember(side1Conn,eligibleSideVertIDs(:,1))');
+[c2,r2] = find(ismember(side2Conn,eligibleSideVertIDs(:,2))');
+iside1Conn  = sub2ind(size(side1Conn),r1,c1);
+iside2Conn  = sub2ind(size(side2Conn),r2,c2);
+
+% Replicate eligibleMiddleVertIDs to mirror the number of elements affected.
+idx1 = cellfun(@length,eligibleSideElemIDs(:,1));
+iside1VertID = repelem(1:numel(idx1),idx1);
+idx2 = cellfun(@length,eligibleSideElemIDs(:,2));
+iside2VertID = repelem(1:numel(idx2),idx2);
+ 
+% Replace too-obtuse-VertIDs with common vertices.
+removedVertIDs  = unique(eligibleSideVertIDs);
+side1Conn(iside1Conn)   = eligibleMiddleVertIDs(iside1VertID);
+side2Conn(iside2Conn)   = eligibleMiddleVertIDs(iside2VertID);
+
+% Update CHILmesh object.
+CM.ConnectivityList(iside1ElemIDs,:)	= side1Conn;
+CM.ConnectivityList(iside2ElemIDs,:)	= side2Conn;
+CM.ConnectivityList(eligibleElemIDs,:)	= 0;
+CM  = CHILmesh(CM.ConnectivityList(sum(CM.ConnectivityList,2) ~= 0,:),CM.Points);
+
+% Future addition: Adjust vertices of quads that had a vertex shifted such
+% that their previously-unaltered vertices shift slightly toward
+% eligibleMiddleVertIDs.
+end
+
+function [CM,removedVertIDs]	= subroutineTruncateBoundaryQuads(CM,eligibleElemIDs,...
+    eligibleMiddleVertIDs,eligibleSideVertIDs,eligibleSideElemIDs)
+%TRUNCATEBOUNDARYQUADSSUBROUTINE Removes quads with too-obtuse of angles
+%and 3 edges confined by the mesh boundary.
+%   Goal is to identify one edge of the quad that does not have any other
+%   adjacent quads and then shift the neighboring edges to take it's
+%   vertices' places, then shift those vertices' adjacent boundary vertices
+%   a little close so that edge function is maintained along the boundary.
+
+%   See also: CLEANUPBOUNDARYQUADS, CLEANUPBOUNDARYQUADSSUBROUTINE.
+%==========================================================================
+
+% Since quad has 3 boundary edges, identify it's only quad neighbor.
+
+% Identify shared edge between the two quads.
+
+% Identify the quads on each end of the edge.
+
+% Identify the next vert in quad for each ^ wrt eligibleElemID
+% connectivity.
+
+% Flag verts to be removed from mesh later.
+
+% Change vert coordinates of each side of edge to replace removedVertIDs.
+CM.Points(eligibleSideVertIDs,:) = CM.Points(eligibleMiddleVertIDs,:);
+CM.ConnectivityList(eligibleElemIDs,:) = 0;
+CM  = CHILmesh(CM.ConnectivityList(sum(CM.ConnectivityList,2) ~= 0,:),CM.Points);
+removedVertIDs  = unique(eligibleMiddleVertIDs);
+end
