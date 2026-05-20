@@ -9,7 +9,7 @@ Per MATLAB ``removeTrianglesFun``, each leftover tri is routed by:
     False, 0      → edge_insertion (case 2)
     True,  2 or 3 → edge_insertion (case 3)
     True,  1, can_remove → edge_removal
-    True,  1, !can_remove → edge_bisection (case 1, downgrades to edge_removal)
+    True,  1, !can_remove → edge_bisection (case 1)
 
 Port focuses on the algorithmic intent. Some MATLAB special-cases (the
 re-triangulation of iLayer-1 in edge_insertion case 2) are non-trivial; we
@@ -197,6 +197,6 @@ def route_leftover_tri(
     elif on_mesh_boundary and n_bdy == 1 and can_remove_edges:
         edge_removal(domain, work, tri_elem_id, bdy_edges_local[0])
     elif on_mesh_boundary and n_bdy == 1 and not can_remove_edges:
-        # MATLAB downgrades to edge_removal as well.
-        edge_removal(domain, work, tri_elem_id, bdy_edges_local[0])
+        # MATLAB removeTrianglesFun: edgeBisection(1) when canRemoveEdges=false.
+        edge_bisection(domain, work, tri_elem_id, bdy_edges_local[0])
     # Else: silently leave as triangle (degenerate, rare).

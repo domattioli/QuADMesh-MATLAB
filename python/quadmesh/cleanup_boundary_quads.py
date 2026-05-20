@@ -1,10 +1,8 @@
 """Boundary-quad cleanup. Port of MATLAB CleanupBoundaryQuads_v2.m.
 
 Two modes:
-  collapse (can_remove_edges=True):  snap corner vert to opposing; remove quad.
-  shift    (can_remove_edges=False): move corner vert inward to reduce angle.
-
-MAT only implements collapse. Shift mode is v0.2 addition.
+  collapse (can_remove_edges=True):  merge side verts into corner; delete bad quad. MATLAB subroutineCleanupBoundaryQuads.
+  shift    (can_remove_edges=False): move corner vert inward to reduce angle. v0.2 addition (MATLAB never implemented).
 
 Bad quad: two adjacent boundary edges whose shared corner has angle > 134 deg.
 """
@@ -108,8 +106,8 @@ def cleanup_boundary_quads(mesh: CHILmesh, can_remove_edges: bool = True) -> CHI
 
     Args:
         mesh: Quad (or padded-tri) CHILmesh.
-        can_remove_edges: True -> collapse mode (remove bad quads).
-                          False -> shift mode (reposition corner vertex).
+        can_remove_edges: True -> collapse mode (MATLAB-faithful).
+                          False -> shift mode (v0.2, Python-only).
     """
     if mesh.connectivity_list.shape[1] != 4:
         return mesh
@@ -122,11 +120,15 @@ def cleanup_boundary_quads(mesh: CHILmesh, can_remove_edges: bool = True) -> CHI
     new_rows = mesh.connectivity_list.copy()
 
     if can_remove_edges:
-        # Collapse: move corner to opposing's position; remap opposing -> corner; delete quad.
+        # MATLAB subroutineCleanupBoundaryQuads:
+        # side1 = verts[(ci-1)%4], side2 = verts[(ci+1)%4] remapped to corner.
+        # Corner stays in place. Bad quad deleted.
         deleted = np.zeros(mesh.n_elems, dtype=bool)
         for elem_id, corner, opposing, ci, verts, p_prev, p_next in bad:
-            new_pts[corner] = mesh.points[opposing]
-            new_rows[new_rows == opposing] = corner
+            side1 = verts[(ci - 1) % 4]
+            side2 = verts[(ci + 1) % 4]
+            new_rows[new_rows == side1] = corner
+            new_rows[new_rows == side2] = corner
             deleted[elem_id] = True
         new_rows = new_rows[~deleted]
         out = CHILmesh(new_rows, new_pts, grid_name=getattr(mesh, "grid_name", None))

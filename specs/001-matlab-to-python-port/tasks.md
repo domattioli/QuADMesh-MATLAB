@@ -1,7 +1,7 @@
 # Tasks: Port MATLAB QuADMESH+ to Python
 
 **Spec**: [spec.md](./spec.md) · **Plan**: [plan.md](./plan.md)
-**Branch**: `claude/awesome-goodall-cqPYK` (v0.2) / `claude/affectionate-heisenberg-prShD` (v0.1)
+**Branch**: `claude/awesome-goodall-cqPYK` (v0.2+) / `claude/affectionate-heisenberg-prShD` (v0.1)
 
 Status legend: `[ ]` todo · `[~]` in-progress · `[x]` done · `[-]` deferred.
 
@@ -44,7 +44,7 @@ Status legend: `[ ]` todo · `[~]` in-progress · `[x]` done · `[-]` deferred.
 
 - [x] T6.1 `doublet_collapse`.
 - [x] T6.2 `quad_vertex_merge`.
-- [x] T6.3 `cleanup_boundary_quads` (collapse mode).
+- [x] T6.3 `cleanup_boundary_quads` (collapse + shift modes).
 - [x] T6.4 `remove_unused_vertices`.
 - [x] T6.5 `post_process_routine` orchestrator with outer + inner iteration caps.
 - [x] T6.6 Per-op smoke tests + end-to-end pipeline test.
@@ -53,7 +53,7 @@ Status legend: `[ ]` todo · `[~]` in-progress · `[x]` done · `[-]` deferred.
 
 - [x] T7.1 `create_quad_domain(mesh, polygon=None)`.
 - [x] T7.2 `run_pipeline(mesh, polygon, can_remove_edges, n_smooth_iter)`.
-- [x] T7.3 `cli.py` — argparse driver.
+- [x] T7.3 `cli.py` — argparse driver with `--n-smooth-iter` flag.
 
 ## T8 — Tests + fixtures
 
@@ -79,13 +79,12 @@ Status legend: `[ ]` todo · `[~]` in-progress · `[x]` done · `[-]` deferred.
 
 ## T11 — v0.2 additions
 
-- [x] T11.1 `cleanup_boundary_quads(can_remove_edges=False)` shift mode — binary-search bisection to ≤90°. Python-only (MATLAB never implemented this).
-- [x] T11.2 `two_part_smoother(mesh, n_iter)` — port of `twoPartSmoother.m`; full-mesh angle+FEM interleave (sub-domain split deferred T11.5).
-- [x] T11.3 `post_process_routine` calls `two_part_smoother` instead of bare `smooth_mesh`.
-- [x] T11.4 7 new tests in `test_cleanup_bq.py` — helpers, no-op, collapse+shift on real mesh. Total: 25 tests.
-- [-] T11.5 Sub-domain (boundary vs interior) split in `two_part_smoother` — deferred to v0.3; needs `CHILmesh.submesh()` public API.
-- [-] T11.6 Edge-insertion case-2 retriangulation of iLayer-1 (spec Q2) — deferred to v0.3.
-- [-] T11.7 Aggressive leftover-tri routing in default path — deferred to v0.3 (blocked by chilmesh#132).
+- [x] T11.1 `cleanup_boundary_quads(can_remove_edges=False)` shift mode.
+- [x] T11.2 `two_part_smoother(mesh, n_iter)` — port of `twoPartSmoother.m`.
+- [x] T11.3 `post_process_routine` calls `two_part_smoother`.
+- [x] T11.4 7 new tests in `test_cleanup_bq.py`. Total: 25 tests.
+- [-] T11.5 Sub-domain split in `two_part_smoother` — deferred; needs `CHILmesh.submesh()`.
+- [-] T11.6 Edge-insertion case-2 retriangulation of iLayer-1 — deferred; requires stateful layer sweep redesign.
 
 ## T12 — v0.1 Ship
 
@@ -97,11 +96,18 @@ Status legend: `[ ]` todo · `[~]` in-progress · `[x]` done · `[-]` deferred.
 - [x] T13.1 Commit + push to `claude/awesome-goodall-cqPYK`.
 - [x] T13.2 Open draft PR → PR #3.
 - [x] T13.3 Session handoff (`docs/sessions/session-002.md`).
-- [-] T13.4 Introspect — skill not available in current remote exec environment.
+- [-] T13.4 Introspect — skill not available in remote exec environment.
 
-## v0.3 Deferred backlog
+## T14 — v0.3 partial (unblocked)
 
-- sub-domain split in twoPartSmoother (needs CHILmesh.submesh)
-- aggressive tri routing (needs chilmesh#132 merge_elements)
-- edge-insertion case-2 retriangulation
-- CleanupBoundaryQuads collapse topology alignment with MATLAB (snap side-verts vs snap corner)
+- [x] T14.1 Collapse alignment with MATLAB: side verts (ci±1)%4 merged into corner (not corner→opposing).
+- [x] T14.2 Fix `route_leftover_tri` bug: `n_bdy==1 && !can_remove_edges` → `edge_bisection` (was `edge_removal`).
+- [-] T14.3 Aggressive leftover-tri routing — blocked by chilmesh#132.
+- [-] T14.4 Sub-domain smoother — blocked by `CHILmesh.submesh()`.
+
+## v0.3 remaining backlog
+
+- edge-insertion case-2 retriangulation (needs stateful layer sweep)
+- aggressive tri routing (needs chilmesh#132)
+- sub-domain smoother (needs CHILmesh.submesh)
+- T4.6 aggressive-path test coverage
