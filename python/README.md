@@ -1,63 +1,60 @@
-# quadmesh (Python)
+# quadmesh
 
-Port of MATLAB QuADMESH+ tri-to-quad mesh generator. Sit on top of `chilmesh`.
+Tri-to-quad mesh generator. Port of MATLAB QuADMESH+. Build on `chilmesh`.
 
 ## Pipeline
 
 ```
-CHILmesh (triangular) → create_quad_domain → tri2quad → post_process → quad mesh
+tri -> create_quad_domain -> tri2quad -> post_process -> quad
 ```
 
-Stages:
-
-1. **create_quad_domain** — pick triangle subset for conversion (whole mesh, polygon mask, etc.).
-2. **tri2quad** — sweep layers outward; merge adjacent tri pairs into quads; bisect/insert/remove edges to absorb stragglers.
-3. **post_process** — doublet collapse, quad-vertex merge, boundary-quad cleanup, FEM smoothing.
+1. `create_quad_domain` — pick tris (whole mesh or polygon mask).
+2. `tri2quad` — sweep layers outward, merge tri pairs into quads.
+3. `post_process` — doublet collapse, quad-vert merge, boundary cleanup, smooth.
 
 ## Install
 
 ```bash
-pip install -e .            # depends on chilmesh
-pytest                      # run tests
+pip install -e .
+pytest          # 25+ tests
 ```
 
-## Quick use
+## Use
 
 ```python
 from chilmesh import CHILmesh
-from quadmesh import tri2quad, post_process
+from quadmesh import tri2quad, post_process, two_part_smoother
 
-tri = CHILmesh.read_from_fort14("Test_Case_1.14")
-quad = tri2quad(tri, can_remove_edges=True)
-quad = post_process(quad, can_remove_edges=True, n_smooth_iter=50)
+tri = CHILmesh.read_from_fort14("mesh.14")
+quad = tri2quad(tri)
+quad = post_process(quad, n_smooth_iter=50)
 ```
-
-## Provenance
-
-MATLAB source in `../02_QuADMESH_Library/`. Per-routine MATLAB→Python map in `MAPPING.md`.
 
 ## CLI
 
 ```bash
-quadmesh path/to/tri.14 -o out.14
-quadmesh tri.14 -o out.14 --polygon poly.csv --n-smooth-iter 50
-quadmesh tri.14 -o out.14 --no-post-process    # raw tri2quad output
+quadmesh mesh.14 -o out.14
+quadmesh mesh.14 -o out.14 --no-remove-edges --n-smooth-iter 100
+quadmesh mesh.14 -o out.14 --no-post-process
 ```
 
-## Performance
+## v0.2 new
 
-Block_O (5214 tris, 9 layers) — full pipeline: ~1.2s. Mean output quality ≈ 0.84.
-Test_Case_1 (2417 tris, 7 layers) — full pipeline: <1s.
+- `CleanupBoundaryQuads` shift mode (`can_remove_edges=False`). Move corner inward. Before: no-op. Now: work.
+- `two_part_smoother`. Interleave angle + FEM smooth. Port of MATLAB `twoPartSmoother.m`.
+- 25+ tests.
 
-## Status
+## Numbers
 
-v0.1 port: tri-pair merge + post-process (doublet, QVM, boundary cleanup, smoothing) + CLI.
-Aggressive leftover-tri routing and `CleanupBoundaryQuads` shift mode deferred to v0.2 — see `MAPPING.md`.
+| Mesh | Tris | Layers | Pipeline |
+|---|---|---|---|
+| Test_Case_1 | 2417 | 7 | <1 s |
+| Block_O | 5214 | 9 | ~1.2 s |
 
-## Spec
+## Provenance
 
-Spec-driven via speckit: `../specs/001-matlab-to-python-port/`.
+MAT src: `../02_QuADMESH_Library/`. Map: `MAPPING.md`. Spec: `../specs/001-matlab-to-python-port/`.
 
-## Citation
+## Cite
 
-Mattioli, D. D. (2017). _QuADMESH+: A Quadrangular ADvanced Mesh Generator for Hydrodynamic Models_ [Master's thesis, Ohio State University].
+Mattioli, D. D. (2017). _QuADMESH+: A Quadrangular ADvanced Mesh Generator_. Master's thesis, OSU.

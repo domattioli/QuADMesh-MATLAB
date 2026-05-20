@@ -1,21 +1,20 @@
 """QuADMESH+ Python port. Tri-to-quad mesh generator on top of chilmesh."""
-
 from __future__ import annotations
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .tri2quad import tri2quad_routine as tri2quad
+from .post_process import post_process_routine as post_process, two_part_smoother
 
 __all__ = [
     "tri2quad",
+    "post_process",
+    "two_part_smoother",
     "__version__",
 ]
 
 
-def __getattr__(name):
-    if name == "post_process":
-        from .post_process import post_process_routine
-        return post_process_routine
+def __getattr__(name: str):
     if name == "create_quad_domain":
         from .create_quad_domain import create_quad_domain
         return create_quad_domain

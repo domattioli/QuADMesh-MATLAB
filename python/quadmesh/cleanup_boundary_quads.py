@@ -1,13 +1,13 @@
-"""Boundary-quad cleanup. Port of MATLAB CleanupBoundaryQuads_v2.m, collapse mode.
+"""Boundary-quad cleanup. Port of MATLAB CleanupBoundaryQuads_v2.m.
 
-Removes unsmoothable boundary quads — a quad on the mesh boundary with two
-adjacent boundary edges and an interior angle >134° at the shared corner.
-Such quads have effectively zero quality and cannot be smoothed.
+Two modes:
+  collapse (can_remove_edges=True):  snap corner vert to opposing; remove quad.
+  shift    (can_remove_edges=False): move corner vert inward to reduce angle.
 
-Only the "collapse" branch is ported in v0.1. The MATLAB "shift" branch
-(when ``canRemoveEdges=False``) is a v0.2 follow-up.
+MAT only implements collapse. Shift mode is v0.2 addition.
+
+Bad quad: two adjacent boundary edges whose shared corner has angle > 134 deg.
 """
-
 from __future__ import annotations
 
 import math
@@ -18,47 +18,60 @@ from chilmesh import CHILmesh
 
 from .remove_unused import remove_unused_vertices
 
-
 ANGLE_THRESHOLD_DEG = 134.0
 
 
-def _interior_angle_deg(p_corner, p_a, p_b) -> float:
-    """Angle at p_corner between vectors to p_a and p_b. Degrees, in [0, 180]."""
+def _angle_deg(p_corner: np.ndarray, p_a: np.ndarray, p_b: np.ndarray) -> float:
     va = np.asarray(p_a, dtype=float) - p_corner
     vb = np.asarray(p_b, dtype=float) - p_corner
-    na = np.linalg.norm(va)
-    nb = np.linalg.norm(vb)
+    na, nb = np.linalg.norm(va), np.linalg.norm(vb)
     if na == 0 or nb == 0:
         return 0.0
     cos = float(np.dot(va, vb) / (na * nb))
     return math.degrees(math.acos(max(-1.0, min(1.0, cos))))
 
 
-def cleanup_boundary_quads(mesh: CHILmesh, can_remove_edges: bool = True) -> CHILmesh:
-    """Single pass. Caller may loop until no more candidates."""
-    if not can_remove_edges:
-        return mesh  # shift mode TODO v0.2.
-    if mesh.connectivity_list.shape[1] != 4:
-        return mesh
+def _shift_to_target_angle(
+    p_corner: np.ndarray,
+    p_a: np.ndarray,
+    p_b: np.ndarray,
+    p_opposing: np.ndarray,
+    target_deg: float = 90.0,
+) -> np.ndarray:
+    """Binary search: move p_corner toward p_opposing until angle(p_a, corner, p_b) ~= target_deg."""
+    p_c = np.asarray(p_corner, dtype=float)
+    p_opp = np.asarray(p_opposing, dtype=float)
+    p_a = np.asarray(p_a, dtype=float)
+    p_b = np.asarray(p_b, dtype=float)
+    lo, hi = 0.0, 1.0
+    for _ in range(24):
+        t = 0.5 * (lo + hi)
+        new_c = p_c + t * (p_opp - p_c)
+        if _angle_deg(new_c, p_a, p_b) > target_deg:
+            lo = t
+        else:
+            hi = t
+    return p_c + 0.5 * (lo + hi) * (p_opp - p_c)
 
+
+def _scan_bad_quads(mesh: CHILmesh):
+    """Yield (elem_id, corner, opposing, ci, verts, p_prev, p_next) for bad boundary quads."""
     bdy_edges = set(int(e) for e in mesh.boundary_edges())
-    bdy_verts = set(int(v) for v in mesh.boundary_node_indices())
     cl = mesh.connectivity_list
-    points = mesh.points
-
-    to_collapse = []  # (elem_id, corner_vert, opposing_vert)
-    consumed = set()
+    pts = mesh.points
+    consumed: set[int] = set()
 
     for elem_id in range(mesh.n_elems):
         row = cl[elem_id]
         if int(row[2]) == int(row[3]):
-            continue
+            continue  # padded tri
         verts = row.astype(int).tolist()
         edges = mesh.elem2edge(elem_id).ravel().astype(int).tolist()
         on_bdy = [i for i, e in enumerate(edges) if int(e) in bdy_edges]
         if len(on_bdy) < 2:
             continue
-        # Adjacent edges share a vert. Find the shared corner.
+
+        # Find two adjacent boundary edges (share a corner vertex).
         adj = None
         for i in range(len(on_bdy) - 1):
             if (on_bdy[i] + 1) % 4 == on_bdy[i + 1]:
@@ -69,43 +82,59 @@ def cleanup_boundary_quads(mesh: CHILmesh, can_remove_edges: bool = True) -> CHI
         if adj is None:
             continue
 
-        # Corner vert is at conn index `adj[1]`.
         ci = adj[1]
         corner = verts[ci]
-        p_corner = points[corner]
-        p_prev = points[verts[(ci - 1) % 4]]
-        p_next = points[verts[(ci + 1) % 4]]
-        angle = _interior_angle_deg(p_corner, p_prev, p_next)
-        if angle <= ANGLE_THRESHOLD_DEG:
+        p_prev = pts[verts[(ci - 1) % 4]]
+        p_next = pts[verts[(ci + 1) % 4]]
+        if _angle_deg(pts[corner], p_prev, p_next) <= ANGLE_THRESHOLD_DEG:
             continue
 
         opposing = verts[(ci + 2) % 4]
+
         if elem_id in consumed:
             continue
-        # Don't consume quads adjacent to already-flagged ones (greedy disjoint).
-        nbrs = set()
+        nbrs: set[int] = set()
         for v in verts:
             nbrs.update(int(e) for e in mesh.get_vertex_elements(int(v)))
         if nbrs & consumed:
             continue
+        consumed |= nbrs
 
-        to_collapse.append((elem_id, corner, opposing))
-        consumed.update(nbrs)
+        yield elem_id, corner, opposing, ci, verts, p_prev, p_next
 
-    if not to_collapse:
+
+def cleanup_boundary_quads(mesh: CHILmesh, can_remove_edges: bool = True) -> CHILmesh:
+    """Single pass. Loop caller until stable.
+
+    Args:
+        mesh: Quad (or padded-tri) CHILmesh.
+        can_remove_edges: True -> collapse mode (remove bad quads).
+                          False -> shift mode (reposition corner vertex).
+    """
+    if mesh.connectivity_list.shape[1] != 4:
         return mesh
 
-    new_rows = cl.copy()
-    deleted = np.zeros(mesh.n_elems, dtype=bool)
-    new_points = points.copy()
+    bad = list(_scan_bad_quads(mesh))
+    if not bad:
+        return mesh
 
-    for elem_id, corner, opposing in to_collapse:
-        # Move corner to opposing's position (collapse the diagonal).
-        new_points[corner] = points[opposing]
-        # Rewrite opposing → corner everywhere.
-        new_rows[new_rows == opposing] = corner
-        deleted[elem_id] = True
+    new_pts = mesh.points.copy()
+    new_rows = mesh.connectivity_list.copy()
 
-    new_rows = new_rows[~deleted]
-    out = CHILmesh(new_rows, new_points, grid_name=getattr(mesh, "grid_name", None))
-    return remove_unused_vertices(out)
+    if can_remove_edges:
+        # Collapse: move corner to opposing's position; remap opposing -> corner; delete quad.
+        deleted = np.zeros(mesh.n_elems, dtype=bool)
+        for elem_id, corner, opposing, ci, verts, p_prev, p_next in bad:
+            new_pts[corner] = mesh.points[opposing]
+            new_rows[new_rows == opposing] = corner
+            deleted[elem_id] = True
+        new_rows = new_rows[~deleted]
+        out = CHILmesh(new_rows, new_pts, grid_name=getattr(mesh, "grid_name", None))
+        return remove_unused_vertices(out)
+    else:
+        # Shift: move corner toward opposing until angle <= target.
+        for elem_id, corner, opposing, ci, verts, p_prev, p_next in bad:
+            new_pts[corner] = _shift_to_target_angle(
+                mesh.points[corner], p_prev, p_next, mesh.points[opposing]
+            )
+        return CHILmesh(new_rows, new_pts, grid_name=getattr(mesh, "grid_name", None))
