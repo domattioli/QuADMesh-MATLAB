@@ -1,7 +1,7 @@
 # Tasks: Port MATLAB QuADMESH+ to Python
 
 **Spec**: [spec.md](./spec.md) · **Plan**: [plan.md](./plan.md)
-**Branch**: `claude/affectionate-heisenberg-prShD`
+**Branch**: `claude/awesome-goodall-cqPYK` (v0.2) / `claude/affectionate-heisenberg-prShD` (v0.1)
 
 Status legend: `[ ]` todo · `[~]` in-progress · `[x]` done · `[-]` deferred.
 
@@ -31,7 +31,7 @@ Status legend: `[ ]` todo · `[~]` in-progress · `[x]` done · `[-]` deferred.
 - [x] T4.3 `edge_bisection`.
 - [x] T4.4 `edge_insertion`.
 - [x] T4.5 `route_leftover_tri` (opt-in via `aggressive=True`).
-- [-] T4.6 Aggressive-path tests — deferred to v0.2 (default path keeps leftover tris as padded tris).
+- [-] T4.6 Aggressive-path tests — deferred to v0.3.
 
 ## T5 — Tri2Quad sweep (`tri2quad.py`)
 
@@ -44,7 +44,7 @@ Status legend: `[ ]` todo · `[~]` in-progress · `[x]` done · `[-]` deferred.
 
 - [x] T6.1 `doublet_collapse`.
 - [x] T6.2 `quad_vertex_merge`.
-- [x] T6.3 `cleanup_boundary_quads` (collapse mode only).
+- [x] T6.3 `cleanup_boundary_quads` (collapse mode).
 - [x] T6.4 `remove_unused_vertices`.
 - [x] T6.5 `post_process_routine` orchestrator with outer + inner iteration caps.
 - [x] T6.6 Per-op smoke tests + end-to-end pipeline test.
@@ -63,7 +63,7 @@ Status legend: `[ ]` todo · `[~]` in-progress · `[x]` done · `[-]` deferred.
 - [x] T8.4 `test_tri2quad_smoke.py` (3 tests).
 - [x] T8.5 `test_pipeline.py` (5 tests; covers post-process + pipeline).
 - [x] T8.6 `test_cli.py` (1 test, end-to-end CLI roundtrip).
-- **Total: 18 tests, all green, runtime ~5s.**
+- **Total v0.1: 18 tests, all green, runtime ~5s.**
 
 ## T9 — Docs + mapping
 
@@ -73,21 +73,35 @@ Status legend: `[ ]` todo · `[~]` in-progress · `[x]` done · `[-]` deferred.
 
 ## T10 — CHILmesh future-work issues
 
-- [ ] T10.1 File issue: `chilmesh.mutations.MutableMesh.merge_elements` is a stub.
-- [ ] T10.2 File issue: `chilmesh.ccw_edges_around_vert` — public helper.
-- [ ] T10.3 File issue: `chilmesh.CHILmesh(...)` with `compute_layers=False` skips adjacency building too; add a `compute_adjacencies=True` flag.
+- [x] T10.1 Filed chilmesh#132: `MutableMesh.merge_elements` stub.
+- [x] T10.2 Filed chilmesh#133: `ccw_edges_around_vert` public helper.
+- [x] T10.3 Filed chilmesh#134: `compute_adjacencies=True` independent of `compute_layers`.
 
-## T11 — Deferred to v0.2
+## T11 — v0.2 additions
 
-- [-] Edge-insertion case-2 retriangulation of iLayer-1 (spec Q2).
-- [-] CleanupBoundaryQuads "shift" mode (spec Q4).
-- [-] GUI / interactive plot progress (out of scope).
-- [-] ADMESH_Library port (out of scope).
-- [-] Aggressive leftover-tri routing in default path.
+- [x] T11.1 `cleanup_boundary_quads(can_remove_edges=False)` shift mode — binary-search bisection to ≤90°. Python-only (MATLAB never implemented this).
+- [x] T11.2 `two_part_smoother(mesh, n_iter)` — port of `twoPartSmoother.m`; full-mesh angle+FEM interleave (sub-domain split deferred T11.5).
+- [x] T11.3 `post_process_routine` calls `two_part_smoother` instead of bare `smooth_mesh`.
+- [x] T11.4 7 new tests in `test_cleanup_bq.py` — helpers, no-op, collapse+shift on real mesh. Total: 25 tests.
+- [-] T11.5 Sub-domain (boundary vs interior) split in `two_part_smoother` — deferred to v0.3; needs `CHILmesh.submesh()` public API.
+- [-] T11.6 Edge-insertion case-2 retriangulation of iLayer-1 (spec Q2) — deferred to v0.3.
+- [-] T11.7 Aggressive leftover-tri routing in default path — deferred to v0.3 (blocked by chilmesh#132).
 
-## T12 — Ship
+## T12 — v0.1 Ship
 
-- [ ] T12.1 Commit + push to `claude/affectionate-heisenberg-prShD`.
-- [ ] T12.2 Open draft PR.
-- [ ] T12.3 Session handoff (`docs/sessions/`).
-- [ ] T12.4 Introspect.
+- [x] T12.1 Commit + push to `claude/affectionate-heisenberg-prShD`.
+- [x] T12.2 Open draft PR → PR #2.
+
+## T13 — v0.2 Ship
+
+- [x] T13.1 Commit + push to `claude/awesome-goodall-cqPYK`.
+- [x] T13.2 Open draft PR → PR #3.
+- [x] T13.3 Session handoff (`docs/sessions/session-002.md`).
+- [-] T13.4 Introspect — skill not available in current remote exec environment.
+
+## v0.3 Deferred backlog
+
+- sub-domain split in twoPartSmoother (needs CHILmesh.submesh)
+- aggressive tri routing (needs chilmesh#132 merge_elements)
+- edge-insertion case-2 retriangulation
+- CleanupBoundaryQuads collapse topology alignment with MATLAB (snap side-verts vs snap corner)
