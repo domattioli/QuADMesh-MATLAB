@@ -1,0 +1,4 @@
+# Manim render artifacts
+media/
+__pycache__/
+*.pyc
