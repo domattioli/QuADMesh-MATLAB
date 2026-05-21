@@ -1,6 +1,6 @@
 # MATLAB -> Python Map
 
-Port status. v0.3.
+Port status. v0.4.
 
 | MATLAB (`02_QuADMESH_Library/`) | Python (`quadmesh/`) | Status |
 |---|---|---|
@@ -16,7 +16,7 @@ Port status. v0.3.
 | `03_Layer_Paths/PathsOnOV.m` | `chilmesh.layer_paths.paths_on_outer_vertices` | done via chilmesh |
 | `03_Layer_Paths/pathRewind.m` | inline in `identify_edges` | done |
 | `04_Remove_Triangles/removeTrianglesFun.m` | `_tri_removal.route_leftover_tri` | partial (conservative default; aggressive=True opt-in; bisection bug fixed) |
-| `04_Remove_Triangles/edgeInsertion.m` | `_tri_removal.edge_insertion` | partial (cases 1/2 without iLayer-1 retriangulation) |
+| `04_Remove_Triangles/edgeInsertion.m` | `_tri_removal.edge_insertion` | partial (cases 1/2 without iLayer-1 retriangulation; design doc lands v0.4 — `specs/001-matlab-to-python-port/case-2-design.md`) |
 | `04_Remove_Triangles/edgeBisection.m` | `_tri_removal.edge_bisection` | partial (case 2) |
 | `04_Remove_Triangles/edgeRemoval.m` | `_tri_removal.edge_removal` | done |
 | `05_Post-Process_Routine/PostProcessRoutine.m` | `post_process.post_process_routine` | done |
@@ -64,13 +64,18 @@ Current Python (v0.2+): MATLAB-aligned.
 
 - `two_part_smoother`: `method="angle"` -> `method="angle-based"` -- smoother was silently broken (ValueError caught by bare `except Exception`). Discovered angle-based is ~42s/pass; defaulted to FEM-only.
 
-## deferred v0.4
+## v0.4 bug fixes
 
-1. Aggressive tri routing -- `edgeInsertion` case 2 iLayer-1 retriangulation (needs stateful layer sweep redesign).
+- `edge_insertion`: `domain.edge2vert(int(e)).astype(int).tolist()` returned `[[u,v]]` (shape `(1,2)`) which failed the `u, v = ...` unpack. Fixed to `.ravel().astype(int).tolist()`. Hidden until T4.6 aggressive-path tests landed.
+
+## deferred v0.5
+
+1. Aggressive tri routing -- `edgeInsertion` case 2 iLayer-1 retriangulation. v0.4 design doc lands in `specs/001-matlab-to-python-port/case-2-design.md`; implementation deferred to v0.5.
 2. `two_part_smoother` sub-domain split -- needs `CHILmesh.submesh()` public API (chilmesh#138).
 3. ADMESH library (`01_ADMESH_Library/`).
 4. Aggressive leftover-tri routing -- blocked by chilmesh#132.
-5. Element-count parity with MATLAB on canonical fixtures.
+5. Element-count parity with MATLAB on canonical fixtures -- v0.4 framework lands with Python-baseline goldens; MATLAB golden capture deferred (requires MATLAB session).
+6. Incremental layer-update API in chilmesh -- needed by case-2 retriangulation, see case-2-design.md "chilmesh API gaps". Filed as low-priority once design is reviewed.
 
 ## chilmesh gaps (low-priority issues filed)
 

@@ -1,7 +1,7 @@
 """QuADMESH+ Python port. Tri-to-quad mesh generator on top of chilmesh."""
 from __future__ import annotations
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 from .tri2quad import tri2quad_routine as tri2quad
 from .post_process import post_process_routine as post_process, two_part_smoother

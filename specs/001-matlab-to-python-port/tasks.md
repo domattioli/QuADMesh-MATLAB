@@ -31,7 +31,7 @@ Status legend: `[ ]` todo · `[~]` in-progress · `[x]` done · `[-]` deferred.
 - [x] T4.3 `edge_bisection`.
 - [x] T4.4 `edge_insertion`.
 - [x] T4.5 `route_leftover_tri` (opt-in via `aggressive=True`).
-- [-] T4.6 Aggressive-path tests -- deferred to v0.4.
+- [x] T4.6 Aggressive-path tests -- done in v0.4 (21 tests; uncovered + fixed `edge_insertion` unpack bug, see T15.1).
 
 ## T5 — Tri2Quad sweep (`tri2quad.py`)
 
@@ -112,10 +112,20 @@ Status legend: `[ ]` todo · `[~]` in-progress · `[x]` done · `[-]` deferred.
 - [-] T14.10 Aggressive leftover-tri routing -- blocked by chilmesh#132.
 - [-] T14.11 Sub-domain smoother -- blocked by chilmesh#138 (`CHILmesh.submesh()`).
 
-## v0.4 backlog
+## T15 -- v0.4 (session 004 branch `claude/gifted-ptolemy-Rknec`)
 
-- edge-insertion case-2 retriangulation (needs stateful layer sweep)
-- aggressive tri routing (needs chilmesh#132)
+- [x] T15.1 Bug fix: `edge_insertion` `domain.edge2vert(...).astype(int).tolist()` unpack -- now `.ravel().astype(int).tolist()`. Bug was hidden because aggressive path was never invoked from tests.
+- [x] T15.2 T4.6 aggressive-path tests -- 21 new tests in `python/tests/test_tri_removal.py` covering `edge_bisection`, `edge_removal`, `edge_insertion`, and `route_leftover_tri` branches (incl. v0.3 bug-fix branch).
+- [x] T15.3 Element-count parity framework -- 10 new tests in `python/tests/test_parity.py` covering Test_Case_1.14 + Block_O.14 (elem count, quad fraction, mean Q, pct bad, no zero-area). Goldens are Python baselines pending MATLAB capture.
+- [x] T15.4 Case-2 design doc -- `specs/001-matlab-to-python-port/case-2-design.md`. Identifies state, algorithm sketch, chilmesh gaps, scope cut.
+- [-] T15.5 Aggressive leftover-tri routing -- still blocked by chilmesh#132.
+- [-] T15.6 Sub-domain smoother -- still blocked by chilmesh#138 (`CHILmesh.submesh()`).
+- [-] T15.7 Edge-insertion case-2 implementation -- design doc lands this session; implementation deferred to v0.5 per scope cut in case-2-design.md.
+
+## v0.5 backlog
+
+- edge-insertion case-2 implementation (design lands in v0.4)
+- aggressive tri routing wire-up (needs chilmesh#132)
 - sub-domain smoother (needs chilmesh#138)
-- T4.6 aggressive-path test coverage
-- Element-count parity with MATLAB on canonical fixtures
+- chilmesh: incremental layer update API (filed if not yet present -- see case-2-design.md "chilmesh API gaps")
+- MATLAB-golden parity asserts (replace Python baselines in BASELINES table)
