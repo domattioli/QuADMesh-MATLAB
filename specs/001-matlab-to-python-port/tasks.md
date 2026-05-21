@@ -1,7 +1,7 @@
 # Tasks: Port MATLAB QuADMESH+ to Python
 
 **Spec**: [spec.md](./spec.md) · **Plan**: [plan.md](./plan.md)
-**Branch**: `claude/awesome-goodall-cqPYK` (v0.2+) / `claude/affectionate-heisenberg-prShD` (v0.1)
+**Branch**: `claude/awesome-goodall-Tbur3` (v0.3) / `claude/awesome-goodall-cqPYK` (v0.2) / `claude/affectionate-heisenberg-prShD` (v0.1)
 
 Status legend: `[ ]` todo · `[~]` in-progress · `[x]` done · `[-]` deferred.
 
@@ -31,14 +31,14 @@ Status legend: `[ ]` todo · `[~]` in-progress · `[x]` done · `[-]` deferred.
 - [x] T4.3 `edge_bisection`.
 - [x] T4.4 `edge_insertion`.
 - [x] T4.5 `route_leftover_tri` (opt-in via `aggressive=True`).
-- [-] T4.6 Aggressive-path tests — deferred to v0.3.
+- [-] T4.6 Aggressive-path tests -- deferred to v0.4.
 
 ## T5 — Tri2Quad sweep (`tri2quad.py`)
 
 - [x] T5.1 `tri2quad_routine(domain, can_remove_edges, parent=None)`.
 - [x] T5.2 Layer-by-layer driver.
-- [x] T5.3 Final assembly: quads + padded tris → CHILmesh.
-- [x] T5.4 Smoke tests (3 tests on Test_Case_1: no-crash, ≥50% quads, no zero-area).
+- [x] T5.3 Final assembly: quads + padded tris -> CHILmesh.
+- [x] T5.4 Smoke tests (3 tests on Test_Case_1: no-crash, >=50% quads, no zero-area).
 
 ## T6 — Post-process operators
 
@@ -53,7 +53,7 @@ Status legend: `[ ]` todo · `[~]` in-progress · `[x]` done · `[-]` deferred.
 
 - [x] T7.1 `create_quad_domain(mesh, polygon=None)`.
 - [x] T7.2 `run_pipeline(mesh, polygon, can_remove_edges, n_smooth_iter)`.
-- [x] T7.3 `cli.py` — argparse driver with `--n-smooth-iter` flag.
+- [x] T7.3 `cli.py` -- argparse driver with `--n-smooth-iter` + `--max-outer-iter` + `--max-inner-iter` flags.
 
 ## T8 — Tests + fixtures
 
@@ -80,34 +80,42 @@ Status legend: `[ ]` todo · `[~]` in-progress · `[x]` done · `[-]` deferred.
 ## T11 — v0.2 additions
 
 - [x] T11.1 `cleanup_boundary_quads(can_remove_edges=False)` shift mode.
-- [x] T11.2 `two_part_smoother(mesh, n_iter)` — port of `twoPartSmoother.m`.
+- [x] T11.2 `two_part_smoother(mesh, n_iter)` -- port of `twoPartSmoother.m`.
 - [x] T11.3 `post_process_routine` calls `two_part_smoother`.
 - [x] T11.4 7 new tests in `test_cleanup_bq.py`. Total: 25 tests.
-- [-] T11.5 Sub-domain split in `two_part_smoother` — deferred; needs `CHILmesh.submesh()`.
-- [-] T11.6 Edge-insertion case-2 retriangulation of iLayer-1 — deferred; requires stateful layer sweep redesign.
+- [-] T11.5 Sub-domain split in `two_part_smoother` -- deferred; needs `CHILmesh.submesh()`.
+- [-] T11.6 Edge-insertion case-2 retriangulation of iLayer-1 -- deferred; requires stateful layer sweep redesign.
 
-## T12 — v0.1 Ship
+## T12 -- v0.1 Ship
 
 - [x] T12.1 Commit + push to `claude/affectionate-heisenberg-prShD`.
-- [x] T12.2 Open draft PR → PR #2.
+- [x] T12.2 Open draft PR -> PR #2.
 
-## T13 — v0.2 Ship
+## T13 -- v0.2 Ship
 
 - [x] T13.1 Commit + push to `claude/awesome-goodall-cqPYK`.
-- [x] T13.2 Open draft PR → PR #3.
+- [x] T13.2 Open draft PR -> PR #3.
 - [x] T13.3 Session handoff (`docs/sessions/session-002.md`).
-- [-] T13.4 Introspect — skill not available in remote exec environment.
+- [-] T13.4 Introspect -- skill not available in remote exec environment.
 
-## T14 — v0.3 partial (unblocked)
+## T14 -- v0.3 (session 003 branch `claude/awesome-goodall-Tbur3`)
 
-- [x] T14.1 Collapse alignment with MATLAB: side verts (ci±1)%4 merged into corner (not corner→opposing).
-- [x] T14.2 Fix `route_leftover_tri` bug: `n_bdy==1 && !can_remove_edges` → `edge_bisection` (was `edge_removal`).
-- [-] T14.3 Aggressive leftover-tri routing — blocked by chilmesh#132.
-- [-] T14.4 Sub-domain smoother — blocked by `CHILmesh.submesh()`.
+- [x] T14.1 Collapse alignment with MATLAB: side verts (ci+/-1)%4 merged into corner (not corner->opposing).
+- [x] T14.2 Fix `route_leftover_tri` bug: `n_bdy==1 && !can_remove_edges` -> `edge_bisection` (was `edge_removal`).
+- [x] T14.3 Bug fix: `two_part_smoother` -- `method="angle"` -> `method="angle-based"`; smoother was silently producing 0 iterations.
+- [x] T14.4 `quality_report.py` -- `compute_quality_stats` + `format_quality_report` (port of MATLAB plotQualityProgress, no plot).
+- [x] T14.5 CLI flags `--max-outer-iter` and `--max-inner-iter` in `cli.py`; quality stats printed after pipeline.
+- [x] T14.6 `pipeline.py` threads `max_outer_iter` + `max_inner_iter` through to `post_process_routine`.
+- [x] T14.7 5 new tests: `test_smoother.py` (2) + `test_quality.py` (3). Total: 35 tests.
+- [x] T14.8 CHILmesh issues filed: chilmesh#138 (`submesh()` API), chilmesh#139 (angle_based_smoother perf ~42s/pass).
+- [x] T14.9 Version bumped to 0.3.0.
+- [-] T14.10 Aggressive leftover-tri routing -- blocked by chilmesh#132.
+- [-] T14.11 Sub-domain smoother -- blocked by chilmesh#138 (`CHILmesh.submesh()`).
 
-## v0.3 remaining backlog
+## v0.4 backlog
 
 - edge-insertion case-2 retriangulation (needs stateful layer sweep)
 - aggressive tri routing (needs chilmesh#132)
-- sub-domain smoother (needs CHILmesh.submesh)
+- sub-domain smoother (needs chilmesh#138)
 - T4.6 aggressive-path test coverage
+- Element-count parity with MATLAB on canonical fixtures

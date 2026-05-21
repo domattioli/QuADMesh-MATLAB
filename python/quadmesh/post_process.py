@@ -1,8 +1,11 @@
 """Post-process orchestrator. Port of MATLAB PostProcessRoutine.m + twoPartSmoother.m.
 
-MAT twoPartSmoother applied MCSmooth to boundary layers (1-3) and FEMSmooth to interior
-elements in alternation.  We approximate by applying angle + FEM smooth to the full mesh
-in alternation (chilmesh sub-domain smooth not yet supported).
+MAT twoPartSmoother for non-mixed meshes applied MCSmooth to boundary layers (1-3) and
+FEMSmooth to interior elements.  For mixed-element meshes (typical output), MATLAB just
+runs FEMSmoother once.  We match that behavior: n_iter passes of FEM by default.
+
+Angle-based smooth is available as opt-in (method='angle-based') but is slow (~40s/pass
+on 2417 elements in chilmesh 0.4); avoid in production until chilmesh vectorises it.
 
 Pipeline:
     repeat until stable (max_outer_iter):
@@ -22,24 +25,25 @@ from .quad_vertex_merge import quad_vertex_merge
 from .remove_unused import remove_unused_vertices
 
 
-def two_part_smoother(mesh: CHILmesh, n_iter: int = 50) -> CHILmesh:
-    """Interleaved angle + FEM smoother. Port of MATLAB twoPartSmoother.m.
+def two_part_smoother(
+    mesh: CHILmesh,
+    n_iter: int = 3,
+    method: str = "fem",
+) -> CHILmesh:
+    """Iterative mesh smoother. Port of MATLAB twoPartSmoother.m.
 
-    Each pass: angle smooth then FEM smooth over full mesh.
-    MATLAB split across boundary/interior sub-meshes; deferred to v0.3
-    pending chilmesh sub-domain smooth support.
+    MATLAB mixed-element path: single FEM pass. We generalise to n_iter passes.
+    Default method is 'fem' (fast: ~0.3s/pass on 2417 elems).
+    Use method='angle-based' for higher quality at ~40s/pass (chilmesh 0.4 is slow).
 
     Args:
         mesh: CHILmesh to smooth.
-        n_iter: Number of alternating passes.
+        n_iter: Number of smooth passes.
+        method: 'fem' (default) or 'angle-based'.
     """
     for _ in range(n_iter):
         try:
-            mesh.smooth_mesh(method="angle", acknowledge_change=True)
-        except Exception:
-            break
-        try:
-            mesh.smooth_mesh(method="fem", acknowledge_change=True)
+            mesh.smooth_mesh(method=method, acknowledge_change=True)
         except Exception:
             break
     return mesh
@@ -48,7 +52,7 @@ def two_part_smoother(mesh: CHILmesh, n_iter: int = 50) -> CHILmesh:
 def post_process_routine(
     mesh: CHILmesh,
     can_remove_edges: bool = True,
-    n_smooth_iter: int = 50,
+    n_smooth_iter: int = 3,
     max_outer_iter: int = 5,
     max_inner_iter: int = 5,
 ) -> CHILmesh:

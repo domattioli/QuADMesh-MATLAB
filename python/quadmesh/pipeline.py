@@ -17,8 +17,10 @@ def run_pipeline(
     mesh: CHILmesh,
     polygon: Optional[np.ndarray] = None,
     can_remove_edges: bool = True,
-    n_smooth_iter: int = 50,
+    n_smooth_iter: int = 3,
     do_post_process: bool = True,
+    max_outer_iter: int = 5,
+    max_inner_iter: int = 5,
 ) -> CHILmesh:
     """Full create_quad_domain → tri2quad → post_process sweep.
 
@@ -26,8 +28,10 @@ def run_pipeline(
         mesh: Input triangular CHILmesh.
         polygon: Optional polygon mask for partial conversion.
         can_remove_edges: Allow edge_removal + boundary-quad collapse.
-        n_smooth_iter: Iterations for the angle-based smoother.
+        n_smooth_iter: Iterations for the alternating angle/FEM smoother.
         do_post_process: If False, skip post-process (raw tri2quad output).
+        max_outer_iter: Outer loop cap in post_process_routine.
+        max_inner_iter: Inner loop cap (doublet + QVM) in post_process_routine.
 
     Returns:
         Final quad CHILmesh.
@@ -39,5 +43,7 @@ def run_pipeline(
             quad,
             can_remove_edges=can_remove_edges,
             n_smooth_iter=n_smooth_iter,
+            max_outer_iter=max_outer_iter,
+            max_inner_iter=max_inner_iter,
         )
     return quad

@@ -11,6 +11,7 @@ import numpy as np
 from chilmesh import CHILmesh
 
 from .pipeline import run_pipeline
+from .quality_report import compute_quality_stats, format_quality_report
 
 
 def _load_polygon(path: Path) -> np.ndarray:
@@ -36,7 +37,12 @@ def main(argv=None) -> int:
                          help="Skip doublet/QVM/cleanup/smooth post-process.")
     parser.add_argument("--no-remove-edges", action="store_true",
                          help="Don't collapse boundary edges/quads.")
-    parser.add_argument("--n-smooth-iter", type=int, default=50)
+    parser.add_argument("--n-smooth-iter", type=int, default=3,
+                         help="FEM smooth passes after post-process (default 3).")
+    parser.add_argument("--max-outer-iter", type=int, default=5,
+                         help="Outer post-process loop cap (default 5).")
+    parser.add_argument("--max-inner-iter", type=int, default=5,
+                         help="Inner doublet+QVM loop cap (default 5).")
     args = parser.parse_args(argv)
 
     if not args.input.exists():
@@ -53,9 +59,13 @@ def main(argv=None) -> int:
         can_remove_edges=not args.no_remove_edges,
         n_smooth_iter=args.n_smooth_iter,
         do_post_process=not args.no_post_process,
+        max_outer_iter=args.max_outer_iter,
+        max_inner_iter=args.max_inner_iter,
     )
 
+    stats = compute_quality_stats(out)
     print(f"output: {out.n_elems} elems, {out.n_verts} verts")
+    print(format_quality_report(stats))
     out.write_to_fort14(str(args.output))
     print(f"written: {args.output}")
     return 0

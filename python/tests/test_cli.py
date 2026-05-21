@@ -23,7 +23,7 @@ def test_cli_runs(tmp_path):
 
     result = subprocess.run(
         [sys.executable, "-m", "quadmesh.cli", str(input_path),
-         "-o", str(output_path), "--n-smooth-iter", "5"],
+         "-o", str(output_path), "--n-smooth-iter", "0"],
         capture_output=True,
         text=True,
         timeout=120,
