@@ -19,6 +19,14 @@ Stage results on the annulus (380 verts / 580 elems):
 | Row 3 | FEM smoother (Balendran) + re-Delaunay | 0.749 | 21.62 |
 | Row 4 | Right-iso stub + re-Delaunay | 0.692 | 17.16 |
 
+### Tri2Quad on a 6×6 square grid
+
+Step-by-step illustration of the Tri2Quad layer routine on a 6×6 vertex grid (50 triangles, three layers). Processes innermost layer first per MATLAB's `for iLayer = Domain.nLayers:-1:1` loop in `02_QuADMESH_Library/02_Tri2Quad_Routine/Tri2QuadRoutine.m`: walk CCW boundary path, flag every-other interior edge via element-flagging, merge each triangle pair into a quad.
+
+![Tri2Quad on 6x6 grid](videos/tri2quad_6x6_grid.gif)
+
+Higher-fidelity mp4: [`videos/tri2quad_6x6_grid.mp4`](videos/tri2quad_6x6_grid.mp4). Generator: [`videos/scripts/tri2quad_6x6_grid.py`](videos/scripts/tri2quad_6x6_grid.py).
+
 ### Tri2Quad routine demo
 
 End-to-end QuADMESH+ run on a smaller annulus (131 tris / 79 verts / 3 layers), showing the algorithmic stages from `python/quadmesh/pipeline.py`: triangulated input → layer decomposition → `tri2quad_routine` → `post_process_routine` (doublet collapse, quad-vertex merge, angle + FEM smoothing).
