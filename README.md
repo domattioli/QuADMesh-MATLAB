@@ -19,5 +19,21 @@ Stage results on the annulus (380 verts / 580 elems):
 | Row 3 | FEM smoother (Balendran) + re-Delaunay | 0.749 | 21.62 |
 | Row 4 | Right-iso stub + re-Delaunay | 0.692 | 17.16 |
 
+### Tri2Quad routine demo
+
+End-to-end QuADMESH+ run on a smaller annulus (131 tris / 79 verts / 3 layers), showing the algorithmic stages from `python/quadmesh/pipeline.py`: triangulated input → layer decomposition → `tri2quad_routine` → `post_process_routine` (doublet collapse, quad-vertex merge, angle + FEM smoothing).
+
+<video src="https://raw.githubusercontent.com/domattioli/QuADMesh-MATLAB/python-porting-project/videos/tri2quad_pipeline_annulus.mp4" controls width="720"></video>
+
+Direct link: [`videos/tri2quad_pipeline_annulus.mp4`](videos/tri2quad_pipeline_annulus.mp4). Generator: [`videos/scripts/tri2quad_pipeline_annulus.py`](videos/scripts/tri2quad_pipeline_annulus.py).
+
+Reproduce:
+
+```
+pip install -e python
+pip install manim scipy
+manim -qm videos/scripts/tri2quad_pipeline_annulus.py AnnulusPipelineScene
+```
+
 Citation:
 Mattioli, Mattioli, D. D. (2017). QuADMESH+: A Quadrangular ADvanced Mesh Generator for Hydrodynamic Models [Master's thesis, Ohio State University]. OhioLINK Electronic Theses and Dissertations Center. http://rave.ohiolink.edu/etdc/view?acc_num=osu1500627779532088
