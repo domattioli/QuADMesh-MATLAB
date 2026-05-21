@@ -25,6 +25,10 @@ cd python && pytest -v        # 35 tests, ~13s
 python -m quadmesh.cli <input.14> -o <out.14>
 ```
 
-## Session handoff
+## Session lifecycle
 
-End every session by writing `docs/sessions/session-NNN.md` with: what changed, key decisions, files touched, what comes next, branch/PR state.
+**Start of session**: invoke `session-resume` skill from DomI upstream (read latest `docs/sessions/session-NNN.md`, restore context: branch, PR, in-progress tasks, blockers). If skill not yet available upstream, do the equivalent manually: read latest handoff + `specs/001-matlab-to-python-port/tasks.md`.
+
+**End of session**: invoke `handoff` skill from DomI upstream to write `docs/sessions/session-NNN.md` (next N) with: what changed, key decisions, files touched, what comes next, branch/PR state, open chilmesh issues. If skill not yet available upstream, do the equivalent manually.
+
+DomI skill names tracked; replace manual prose with skill invocation once landed.
