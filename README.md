@@ -23,9 +23,9 @@ Stage results on the annulus (380 verts / 580 elems):
 
 End-to-end QuADMESH+ run on a smaller annulus (131 tris / 79 verts / 3 layers), showing the algorithmic stages from `python/quadmesh/pipeline.py`: triangulated input → layer decomposition → `tri2quad_routine` → `post_process_routine` (doublet collapse, quad-vertex merge, angle + FEM smoothing).
 
-<video src="https://raw.githubusercontent.com/domattioli/QuADMesh-MATLAB/python-porting-project/videos/tri2quad_pipeline_annulus.mp4" controls width="720"></video>
+![Tri2Quad pipeline on annulus](videos/tri2quad_pipeline_annulus.gif)
 
-Direct link: [`videos/tri2quad_pipeline_annulus.mp4`](videos/tri2quad_pipeline_annulus.mp4). Generator: [`videos/scripts/tri2quad_pipeline_annulus.py`](videos/scripts/tri2quad_pipeline_annulus.py).
+Higher-fidelity mp4: [`videos/tri2quad_pipeline_annulus.mp4`](videos/tri2quad_pipeline_annulus.mp4). Generator: [`videos/scripts/tri2quad_pipeline_annulus.py`](videos/scripts/tri2quad_pipeline_annulus.py).
 
 Reproduce:
 
