@@ -6,9 +6,9 @@ The repository focuses on a class for representing triangular, quadrangular, and
 
 Legacy 4-row CHILmesh pipeline (Raw → ADMESH truss → FEM smoother → right-iso) running on the annulus fixture via the Python port (`chilmesh`):
 
-https://github.com/domattioli/QuADMesh-MATLAB/raw/python-porting-project/videos/readme_pipeline_annulus.mp4
+![CHILmesh annulus pipeline](videos/readme_pipeline_annulus.gif)
 
-Vertex IDs persist across stages and morph continuously between snapshots; polygon edges cross-fade per stage because Delaunay re-triangulation runs after every smoother that moves vertices freely. Reproducible build scripts under [`videos/scripts/`](videos/scripts/README.md).
+Vertex IDs persist across stages and morph continuously between snapshots; polygon edges cross-fade per stage because Delaunay re-triangulation runs after every smoother that moves vertices freely. Reproducible build scripts under [`videos/scripts/`](videos/scripts/README.md); higher-fidelity mp4 at [`videos/readme_pipeline_annulus.mp4`](videos/readme_pipeline_annulus.mp4).
 
 Stage results on the annulus (380 verts / 580 elems):
 
