@@ -33,3 +33,9 @@ def test_case_2() -> CHILmesh:
 @pytest.fixture(scope="session")
 def mixed_test() -> CHILmesh:
     return _load("Mixed_Test.14")
+
+
+@pytest.fixture(scope="session")
+def _block_o() -> CHILmesh:
+    """Block_O fixture for parity scaffold (test_parity.py)."""
+    return _load("Block_O.14")
