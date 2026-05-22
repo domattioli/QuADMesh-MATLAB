@@ -1,10 +1,14 @@
 # CLAUDE.md
 
+## Routine
+
+Routine lives in `DomI/claude_routine_instructions.md` (private). Textbox payload format + per-repo profile knobs in §6–§7 there. Do not duplicate routine prose here.
+
 ## Branch rule
 
-All ongoing work goes on `python-porting-project`. Do not push to `master`, `claude/affectionate-heisenberg-prShD`, `claude/awesome-goodall-cqPYK`, or `claude/awesome-goodall-Tbur3` — those are historical (v0.1/v0.2/v0.3 stack, superseded by PR #5).
+All ongoing work goes on `daily-issue-fixing`. Do not push to `master`/`main` directly. Do not push to historical branches (`python-porting-project`, `claude/affectionate-heisenberg-prShD`, `claude/awesome-goodall-cqPYK`, `claude/awesome-goodall-Tbur3`).
 
-New session branches may be created off `python-porting-project` and merged back via PR.
+New session branches discouraged — work directly on `daily-issue-fixing`, PR → `main`. `branch_guard.sh` (DomI plugin) blocks non-allowlisted names.
 
 ## Layout
 
