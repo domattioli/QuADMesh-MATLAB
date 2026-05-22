@@ -112,10 +112,27 @@ Status legend: `[ ]` todo · `[~]` in-progress · `[x]` done · `[-]` deferred.
 - [-] T14.10 Aggressive leftover-tri routing -- blocked by chilmesh#132.
 - [-] T14.11 Sub-domain smoother -- blocked by chilmesh#138 (`CHILmesh.submesh()`).
 
-## v0.4 backlog
+## T15 — v0.4 (session 004 branch `claude/gifted-ptolemy-uQk5F`)
 
-- edge-insertion case-2 retriangulation (needs stateful layer sweep)
-- aggressive tri routing (needs chilmesh#132)
-- sub-domain smoother (needs chilmesh#138)
-- T4.6 aggressive-path test coverage
-- Element-count parity with MATLAB on canonical fixtures
+- [x] T15.1 T4.6 done — `tests/test_tri_removal.py` (11 tests covering
+      `edge_removal`, `edge_bisection`, `edge_insertion`, dispatcher).
+- [x] T15.2 Bug fix in `edge_insertion`: `edge2vert(...).astype(...).tolist()`
+      missed `.ravel()` — unpack failed on `(1,2)` shape. Caught by new tests.
+      The aggressive path was previously dead code so this never surfaced.
+- [x] T15.3 Element-count parity scaffold — `tests/test_parity.py` (6 tests,
+      Test_Case_1 + Block_O). Regression baselines pinned to current Python
+      output; MATLAB ground truth deferred (Block_O `.mat` is MATLAB-opaque).
+- [x] T15.4 Case-2 design doc — `specs/001-matlab-to-python-port/case-2-design.md`.
+      Identifies needed state (LayerState dataclass, callback hook,
+      adjacency invalidation). Defers impl to v0.5 alongside chilmesh#132.
+- [x] T15.5 Version bumped to 0.4.0. Total: 46 tests (35 → +11 sub-ops; +6 parity = +17).
+- [-] T15.6 Sub-domain smoother — still blocked on chilmesh#138.
+- [-] T15.7 Aggressive tri routing wiring — still blocked on chilmesh#132.
+
+## v0.5 backlog
+
+- Wire `route_leftover_tri` into `tri2quad_routine` (depends on chilmesh#132).
+- Implement `edge_insertion` case-2 iLayer-1 retriangulation per `case-2-design.md`.
+- Sub-domain smoother (depends on chilmesh#138).
+- Angle-based smoother default-on (depends on chilmesh#139).
+- Capture MATLAB ground-truth elem counts; tighten parity tolerances.

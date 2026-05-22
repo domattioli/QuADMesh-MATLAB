@@ -133,7 +133,7 @@ def edge_insertion(domain: CHILmesh, work: WorkingMesh, tri_elem_id: int,
 
     other_verts = []
     for e in edges:
-        u, v = domain.edge2vert(int(e)).astype(int).tolist()
+        u, v = domain.edge2vert(int(e)).ravel().astype(int).tolist()
         other = v if u == bdy_vert_id else u
         if other in conn.tolist() and other != bdy_vert_id:
             other_verts.append(other)
