@@ -31,7 +31,7 @@ Status legend: `[ ]` todo · `[~]` in-progress · `[x]` done · `[-]` deferred.
 - [x] T4.3 `edge_bisection`.
 - [x] T4.4 `edge_insertion`.
 - [x] T4.5 `route_leftover_tri` (opt-in via `aggressive=True`).
-- [-] T4.6 Aggressive-path tests -- deferred to v0.4.
+- [x] T4.6 Aggressive-path tests -- done in v0.4 (21 tests; uncovered + fixed `edge_insertion` unpack bug, see T15.1).
 
 ## T5 — Tri2Quad sweep (`tri2quad.py`)
 
