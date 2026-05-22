@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+.coverage
+build/
+dist/
+*.asv
+.DS_Store
+
+# Manim render output
+media/

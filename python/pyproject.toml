@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quadmesh"
+version = "0.3.0"
+description = "QuADMESH+: Quadrangular ADvanced Mesh generator. Python port of MATLAB QuADMESH library."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    { name = "Dominik Mattioli" },
+]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "chilmesh>=0.4.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "pytest-cov"]
+plot = ["matplotlib>=3.6"]
+
+[project.scripts]
+quadmesh = "quadmesh.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["quadmesh*"]

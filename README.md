@@ -6,9 +6,9 @@ The repository focuses on a class for representing triangular, quadrangular, and
 
 Legacy 4-row CHILmesh pipeline (Raw → ADMESH truss → FEM smoother → right-iso) running on the annulus fixture via the Python port (`chilmesh`):
 
-![CHILmesh annulus pipeline](https://github.com/domattioli/QuADMesh-MATLAB/raw/python-porting-project/videos/readme_pipeline_annulus.gif)
+![CHILmesh annulus pipeline](videos/readme_pipeline_annulus.gif)
 
-Vertex IDs persist across stages and morph continuously between snapshots; polygon edges cross-fade per stage because Delaunay re-triangulation runs after every smoother that moves vertices freely. Sources and reproducible build scripts live on the [`python-porting-project`](https://github.com/domattioli/QuADMesh-MATLAB/tree/python-porting-project/videos) branch; higher-fidelity mp4 at [`videos/readme_pipeline_annulus.mp4`](https://github.com/domattioli/QuADMesh-MATLAB/raw/python-porting-project/videos/readme_pipeline_annulus.mp4).
+Vertex IDs persist across stages and morph continuously between snapshots; polygon edges cross-fade per stage because Delaunay re-triangulation runs after every smoother that moves vertices freely. Reproducible build scripts under [`videos/scripts/`](videos/scripts/README.md); higher-fidelity mp4 at [`videos/readme_pipeline_annulus.mp4`](videos/readme_pipeline_annulus.mp4).
 
 Stage results on the annulus (380 verts / 580 elems):
 
@@ -18,6 +18,30 @@ Stage results on the annulus (380 verts / 580 elems):
 | Row 2 | ADMESH truss warm-start + re-Delaunay | 0.727 | 21.88 |
 | Row 3 | FEM smoother (Balendran) + re-Delaunay | 0.749 | 21.62 |
 | Row 4 | Right-iso stub + re-Delaunay | 0.692 | 17.16 |
+
+### Tri2Quad on a 6×6 square grid
+
+Step-by-step illustration of the Tri2Quad layer routine on a 6×6 vertex grid (50 triangles, three layers). Processes innermost layer first per MATLAB's `for iLayer = Domain.nLayers:-1:1` loop in `02_QuADMESH_Library/02_Tri2Quad_Routine/Tri2QuadRoutine.m`: walk CCW boundary path, flag every-other interior edge via element-flagging, merge each triangle pair into a quad.
+
+![Tri2Quad on 6x6 grid](videos/tri2quad_6x6_grid.gif)
+
+Higher-fidelity mp4: [`videos/tri2quad_6x6_grid.mp4`](videos/tri2quad_6x6_grid.mp4). Generator: [`videos/scripts/tri2quad_6x6_grid.py`](videos/scripts/tri2quad_6x6_grid.py).
+
+### Tri2Quad routine demo
+
+End-to-end QuADMESH+ run on a smaller annulus (131 tris / 79 verts / 3 layers), showing the algorithmic stages from `python/quadmesh/pipeline.py`: triangulated input → layer decomposition → `tri2quad_routine` → `post_process_routine` (doublet collapse, quad-vertex merge, angle + FEM smoothing).
+
+![Tri2Quad pipeline on annulus](videos/tri2quad_pipeline_annulus.gif)
+
+Higher-fidelity mp4: [`videos/tri2quad_pipeline_annulus.mp4`](videos/tri2quad_pipeline_annulus.mp4). Generator: [`videos/scripts/tri2quad_pipeline_annulus.py`](videos/scripts/tri2quad_pipeline_annulus.py).
+
+Reproduce:
+
+```
+pip install -e python
+pip install manim scipy
+manim -qm videos/scripts/tri2quad_pipeline_annulus.py AnnulusPipelineScene
+```
 
 Citation:
 Mattioli, Mattioli, D. D. (2017). QuADMESH+: A Quadrangular ADvanced Mesh Generator for Hydrodynamic Models [Master's thesis, Ohio State University]. OhioLINK Electronic Theses and Dissertations Center. http://rave.ohiolink.edu/etdc/view?acc_num=osu1500627779532088
