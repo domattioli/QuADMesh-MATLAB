@@ -6,6 +6,7 @@ __version__ = "0.4.0"
 from .tri2quad import tri2quad_routine as tri2quad
 from .post_process import post_process_routine as post_process, two_part_smoother
 from .quality_report import compute_quality_stats, format_quality_report
+from .repair import repair_chilmesh, repair_mesh
 
 __all__ = [
     "tri2quad",
@@ -13,6 +14,8 @@ __all__ = [
     "two_part_smoother",
     "compute_quality_stats",
     "format_quality_report",
+    "repair_mesh",
+    "repair_chilmesh",
     "__version__",
 ]
 

@@ -55,6 +55,7 @@ def post_process_routine(
     n_smooth_iter: int = 3,
     max_outer_iter: int = 5,
     max_inner_iter: int = 5,
+    repair: bool = False,
 ) -> CHILmesh:
     """Iteratively improve quad-mesh quality.
 
@@ -64,6 +65,11 @@ def post_process_routine(
         n_smooth_iter: Passes for two_part_smoother.
         max_outer_iter: Outer loop cap.
         max_inner_iter: Inner loop cap (doublet + QVM).
+        repair: Apply ``repair_chilmesh`` as a final pass — snap
+            boundary midpoints, fix bowties, dissolve+remesh validator
+            clusters. Off by default (element count + quality drift can
+            break parity baselines); opt-in via ``repair=True`` or call
+            ``repair_chilmesh`` directly after this routine.
     """
     outer = 0
     n_elems_prev = mesh.n_elems
@@ -87,4 +93,9 @@ def post_process_routine(
 
     mesh = remove_unused_vertices(mesh)
     mesh = two_part_smoother(mesh, n_iter=n_smooth_iter)
+
+    if repair:
+        from .repair import repair_chilmesh
+        mesh = repair_chilmesh(mesh)
+
     return mesh
