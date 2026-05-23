@@ -202,7 +202,7 @@ def _remove_boundary_tris(
     points: np.ndarray,
     bset: Set[Tuple[int, int]],
     can_remove_edges: bool,
-) -> Tuple[List[Tuple[int, int, int, int]], np.ndarray]:
+) -> Tuple[List[Tuple[int, int, int, int]], np.ndarray, List[int]]:
     """Eliminate leftover boundary triangles so the output is quad-pure.
 
     Port of MATLAB ``removeTrianglesFun`` for the on-mesh-boundary case — the
@@ -219,10 +219,17 @@ def _remove_boundary_tris(
     A squeeze is skipped (the tri dropped instead) if merging would collapse a
     quad — i.e. some quad already contains both edge endpoints.
 
-    Returns ``(quads, points)`` with zero residual triangles.
+    **Interior** leftover tris (no boundary edge, ``n_bdy == 0``) are NEVER
+    dropped — dropping one leaves a hole. They are returned as ``kept`` for the
+    caller to emit as padded tris. The matching path never produces interior
+    leftovers (interior-saturating), so it stays quad-pure; the partial faithful
+    sweep does, so this keeps its output hole-free (quad-dominant).
+
+    Returns ``(quads, points, kept)`` — ``kept`` = indices of interior leftover
+    tris to emit (empty for the matching path).
     """
     if not leftover_idx:
-        return quads, points
+        return quads, points, []
 
     quad_arr = (
         np.asarray(quads, dtype=int).reshape(-1, 4)
@@ -243,11 +250,15 @@ def _remove_boundary_tris(
             v = parent[v]
         return v
 
+    kept: List[int] = []
     for ti in leftover_idx:
         tri = tris[ti]
         bdy = [e for e in _tri_edges(tri) if e in bset]
+        if len(bdy) == 0:
+            kept.append(ti)  # interior tri — emit, never drop (would hole)
+            continue
         if len(bdy) != 1 or not can_remove_edges:
-            continue  # drop (n_bdy >= 2, or edges not removable)
+            continue  # boundary truncation: drop n_bdy>=2 (no hole)
         va, vb = (find(bdy[0][0]), find(bdy[0][1]))
         if va == vb:
             continue
@@ -279,7 +290,7 @@ def _remove_boundary_tris(
             inc.setdefault(va, []).append((r, c))
         inc[vb] = []
 
-    return [tuple(int(v) for v in row) for row in quad_arr], pts
+    return [tuple(int(v) for v in row) for row in quad_arr], pts, kept
 
 
 def _faithful_layer_sweep(
@@ -370,10 +381,9 @@ def tri2quad_routine(
 
     if remove_boundary_tris and leftover_idx:
         bset = _boundary_edge_set(tris)
-        quads, points = _remove_boundary_tris(
+        quads, points, leftover_idx = _remove_boundary_tris(
             quads, leftover_idx, tris, points, bset, can_remove_edges
         )
-        leftover_idx = []
 
     quads_arr = (
         np.asarray(quads, dtype=int).reshape(-1, 4)
