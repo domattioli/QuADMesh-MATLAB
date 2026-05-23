@@ -18,21 +18,30 @@ Algorithms", Ch 5 "Post-Processing By Layer", + figures) overturns the central
 premise the rest of this doc was written on. **Where Sections 1–11 below
 disagree with this section, this section wins.**
 
-### CR-1 (CRITICAL) — the faithful method is heuristic MATCHING, not every-other-edge
+### CR-1 (CRITICAL) — faithful = layered every-other-edge sweep AND the matching heuristics (same algorithm, two levels)
 The thesis abstract (p3) and Ch 4 define QuADMESH+ as *"a heuristic
-decision-making algorithm for matching two triangular elements together."* It is
-a **layered, two-stage, priority-driven triangle matching**, worked **innermost
-layer → outward to the boundary**. My earlier framing — "matching = the
-unfaithful shortcut, `identifyEdgesFun_v2` every-other-edge = the faithful
-method" — is **backwards**. Consequences:
-- The current Python interior-saturating matching is a *crude approximation* of
-  the thesis algorithm (interior-first ≈ IE-before-OE; most-constrained ≈
-  fewest-eligible-neighbors). It is **directionally faithful**, not a divergent hack.
-- The shipped MATLAB `identifyEdgesFun_v2` (every-other-edge along a path) is a
-  *simpler realization* than the Ch 4 heuristic. **Open reconciliation:** is the
-  repo MATLAB a production simplification of the thesis, or a different vintage?
-  The thesis is the authoritative spec; the MATLAB is one implementation of it.
-  Verify per-layer behavior against both.
+decision-making algorithm for matching two triangular elements together"* —
+**layered, two-stage, priority-driven, innermost→outward**. The shipped MATLAB
+`identifyEdgesFun_v2` realizes this per layer as an **every-other-edge sweep along
+the layer's outer-vertex path**. These are **not competing methods — they are the
+same method at two levels of description:**
+- A mesh **layer is a triangle strip** (ring between OV and IV). Walking the
+  outer-vertex path and removing **every other interior edge** (skipping the
+  up/down boundary edges) *is* the act of matching adjacent tris along the strip.
+  So the every-other-edge sweep **is** the per-layer matching primitive.
+- The **Ch 4 heuristics** (eligible-neighbor counts, IE-before-OE, the T1/T2
+  tiebreaker ladders, intra-before-inter-layer, isolated-tri pairing) are the
+  **decision rules that govern the sweep** — which edge/pair to take when the
+  strip branches, has odd counts, crosses to L−1, or risks isolating a triangle.
+
+So my earlier framing ("matching, NOT every-other-edge") is **wrong in the other
+direction**. A faithful port needs **both**: the every-other-edge layer-path sweep
+(`identifyEdgesFun_v2` — already partially ported as `identify_edges_in_layer`)
+**and** the Ch 4 ordering/priority heuristics layered on top, **and** the
+recombination ops (CR-2). The current Python interior-saturating matching is a
+*third, coarser* approximation that captures the spirit (interior-first ≈
+IE-first) but neither the strip-sweep structure nor the tiebreakers — keep it only
+as a fast fallback, not the faithful path.
 
 ### CR-2 — three operations are missing from this plan entirely
 The thesis relies on recombination ops this plan never mentioned:
@@ -96,13 +105,16 @@ matters). Current `post_process_routine` applies them globally. Faithful = layer
   Target after a faithful port: ≥ 0.81.
 
 ### Net effect on the plan below
-- Section 1's "same pairing algorithm: every-other-edge" → **wrong**; replace with
-  the Ch 4 two-stage heuristic matching.
-- The biggest faithfulness lever is **not** "wire the every-other-edge sweep"; it is
-  (a) implement the Ch 4 T1/T2 heuristic matching, (b) add edge-swap / edge-flip /
-  vertex-duplication, (c) flip the boundary-tri op preference to point-insertion.
-- The existing Python matching is a viable *starting point* to evolve toward the
-  thesis heuristic, rather than something to discard for the every-other-edge sweep.
+- Faithful pairing = **the layered every-other-edge sweep (`identify_edges_in_layer`)
+  governed by the Ch 4 IE/OE + T1/T2 heuristics** — both, together (CR-1). Not
+  one instead of the other.
+- Full faithfulness levers, in order: (a) wire the every-other-edge layer sweep as
+  the per-layer pairing primitive; (b) layer the Ch 4 ordering/priority/tiebreaker
+  heuristics on top of it; (c) add edge-swap / edge-flip / vertex-duplication
+  (CR-2); (d) flip the boundary-tri op preference to point-insertion (CR-4).
+- The existing `identify_edges_in_layer` port is **on the faithful path** (the
+  sweep primitive), not to be discarded. The current interior-saturating matching
+  is a separate fast fallback (`method="matching"`).
 
 ---
 
@@ -112,12 +124,11 @@ A faithful port reproduces the MATLAB QuADMESH+ pipeline (`02_QuADMESH_Library/0
 **algorithmically**, not merely producing *some* valid quad mesh:
 
 1. **Same pipeline shape:** `createQuadDomain → Tri2QuadRoutine (layer sweep) → PostProcessRoutine`.
-2. **Same pairing algorithm:** the Ch 4 **two-stage layered heuristic matching**
-   (interior layers IE-before-OE; boundary layer OE-before-IE), worked
-   innermost→outward, with the documented T1/T2 tiebreaker ladders — *plus* the
-   recombination ops Edge Swap, Vertex Duplication, Edge Flip (see CR-1, CR-2,
-   CR-3). (NB: the shipped MATLAB realizes the per-layer step as `identifyEdgesFun_v2`
-   every-other-edge; reconcile against the thesis heuristic — CR-1.)
+2. **Same pairing algorithm:** the **layered every-other-edge sweep**
+   (`identifyEdgesFun_v2`, the per-layer strip-pairing primitive) **governed by the
+   Ch 4 heuristics** — two-stage (interior IE-before-OE; boundary OE-before-IE),
+   innermost→outward, with the T1/T2 tiebreaker ladders — *plus* the recombination
+   ops Edge Swap, Vertex Duplication, Edge Flip. Both levels together (CR-1, CR-2, CR-3).
 3. **Same leftover-tri handling:** boundary tris cleared with **point-insertion
    preferred** (add boundary point → quad), edge-swap/vertex-duplication when two
    tris share a vertex, and edge-collapse only as fallback (CR-4) — *not* the
@@ -257,11 +268,11 @@ Without ground truth, "faithful" is unfalsifiable. Build the oracle before the e
 ### Phase 1 — Ch 4 heuristic matching engine (G1) + validate vs ground truth
 Build/evolve the two-stage matching to match the thesis, not just port one function.
 
-- 1.0 Decide: evolve the current `_match_tris_to_quads` toward the Ch 4 heuristic,
-  vs. drive it from `identify_edges_in_layer`. Recommend **evolve** — the current
-  matching already has interior-first + most-constrained, the seeds of IE-first +
-  fewest-eligible-neighbors.
-- 1.1 Implement **interior-layer matching** (Ch 4.1): per-layer, IE-before-OE,
+- 1.0 Use `identify_edges_in_layer` (the every-other-edge layer-path sweep) as the
+  **per-layer pairing primitive** (CR-1), and layer the Ch 4 decision heuristics on
+  top of it for ordering + ambiguous/branch/inter-layer/isolation cases. Do *not*
+  rebuild pairing from the coarse `_match_tris_to_quads` — that stays the fast fallback.
+- 1.1 Layer **interior-layer heuristics** (Ch 4.1) onto the sweep: IE-before-OE,
   eligible-neighbor counting with flagged-edge handling, T1 selection
   (fewest-eligible → tiebreakers p64) + T2 selection (tiebreaker ladder p65–66),
   intra-layer-before-inter-layer, innermost→outward.
