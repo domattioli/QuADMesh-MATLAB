@@ -308,19 +308,22 @@ def _layer_priority(domain: CHILmesh, n: int) -> np.ndarray:
     """Per-triangle match priority from the skeleton layers (Ch 4 ordering).
 
     Encodes the thesis priorities as one sortable int (lower = matched first):
-    **innermost layer first**, and **IE before OE** within a layer. A tri in
-    layer ``li`` gets ``2*(n_layers-1-li) + (0 if IE else 1)``. Triangles with no
-    layer membership sort last.
+    **innermost layer first**; **IE before OE** in interior layers (only IE_L can
+    isolate); but **OE before IE in the boundary layer** (thesis §4.2 — match OE_L
+    first so the last residual is an IE_L, which is cleared without touching the
+    domain boundary). A tri in layer ``li`` gets ``2*(n_layers-1-li) + off``.
+    Triangles with no layer membership sort last.
     """
     layers = domain.layers
     nl = domain.n_layers
     prio = np.full(n, 2 * nl + 1, dtype=int)
     for li in range(nl):
         rank = nl - 1 - li  # innermost layer (largest li) -> rank 0
+        ie_off, oe_off = (1, 0) if li == 0 else (0, 1)  # boundary layer: OE first
         for e in np.asarray(layers["IE"][li], dtype=int):
-            prio[int(e)] = 2 * rank
+            prio[int(e)] = 2 * rank + ie_off
         for e in np.asarray(layers["OE"][li], dtype=int):
-            prio[int(e)] = 2 * rank + 1
+            prio[int(e)] = 2 * rank + oe_off
     return prio
 
 
