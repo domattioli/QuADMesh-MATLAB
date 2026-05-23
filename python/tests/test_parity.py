@@ -20,21 +20,27 @@ import pytest
 from quadmesh import compute_quality_stats, post_process, tri2quad
 
 
-# Baselines captured 2026-05-22 with quadmesh 0.3.0 + chilmesh 0.4.1.
-# Keys: input n_elems, output n_elems, quad fraction, mean quality.
-# Source: ``python -m quadmesh.cli`` smoke runs on each fixture.
+# Baselines re-captured 2026-05-23 with the interior-saturating matching
+# tri2quad (quadmesh 0.1.0). Keys: input n_elems, output n_elems, quad
+# fraction, mean quality. Source: tri2quad -> post_process(n_smooth_iter=3).
+#
+# Mean quality dropped vs the prior conservative baselines (TC1 0.794->0.750,
+# Block_O 0.837->0.748): matching pairs arbitrary adjacent triangles, whereas
+# the every-other-edge heuristic selected better-shaped pairs. This is the
+# known quality cost of the matching pairing; the faithful removeTrianglesFun
+# port (tracked) is expected to recover it.
 EXPECTED = {
     "Test_Case_1.14": {
         "n_elems_in": 2417,
-        "n_elems_out": 1394,
+        "n_elems_out": 1191,
         "quad_frac": 1.000,
-        "mean_quality": 0.794,
+        "mean_quality": 0.750,
     },
     "Block_O.14": {
         "n_elems_in": 5214,
-        "n_elems_out": 3918,
+        "n_elems_out": 2544,
         "quad_frac": 1.000,
-        "mean_quality": 0.837,
+        "mean_quality": 0.748,
     },
 }
 
