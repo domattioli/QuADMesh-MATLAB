@@ -213,6 +213,7 @@ def _remove_boundary_tris(
     points: np.ndarray,
     bset: Set[Tuple[int, int]],
     can_remove_edges: bool,
+    minimize_boundary_change: bool = False,
 ) -> Tuple[List[Tuple[int, int, int, int]], np.ndarray, List[int]]:
     """Eliminate leftover boundary triangles so the output is quad-pure.
 
@@ -261,6 +262,18 @@ def _remove_boundary_tris(
             v = parent[v]
         return v
 
+    # Priority ladder for clearing a remaining BOUNDARY tri (least alteration of
+    # the ORIGINAL boundary vertices first):
+    #   T1 edge-swap / vertex-duplication with a vtx-adjacent remaining tri ->
+    #      quad (0 vert alteration, no shrink). Preferred (thesis Fig 3.2/3.3).
+    #      M3 TODO: needs an interior-edge flip + neighbour rewire — not yet safe.
+    #   T2 edge insertion / add boundary point for an IE_L tri (0 original-vert
+    #      alteration, adds resolution). M3 TODO (degenerate for n_bdy==1 alone).
+    #   T3 drop: tri removed, original boundary verts a,b untouched (interior
+    #      apex joins the boundary). 0 original-vert alteration; mild shrink.
+    #   T4 edge collapse / squeeze: faithful edgeRemoval but MOVES+deletes the 2
+    #      original boundary verts. Last resort.
+    # minimize_boundary_change=True selects T3 (drop) over T4 (squeeze).
     kept: List[int] = []
     for ti in leftover_idx:
         tri = tris[ti]
@@ -268,8 +281,14 @@ def _remove_boundary_tris(
         if len(bdy) == 0:
             kept.append(ti)  # interior tri — emit, never drop (would hole)
             continue
+        if minimize_boundary_change:
+            # T3': emit the residual boundary tri unchanged — preserves ALL
+            # original boundary verts (and area; no orphaned corners). Output is
+            # quad-dominant (boundary tris allowed by the thesis), not quad-pure.
+            kept.append(ti)
+            continue
         if len(bdy) != 1 or not can_remove_edges:
-            continue  # boundary truncation: drop n_bdy>=2 (no hole)
+            continue  # drop n_bdy>=2 (boundary truncation)
         va, vb = (find(bdy[0][0]), find(bdy[0][1]))
         if va == vb:
             continue
@@ -334,6 +353,7 @@ def tri2quad_routine(
     aggressive: bool = False,
     remove_boundary_tris: bool = True,
     method: str = "matching",
+    minimize_boundary_change: Optional[bool] = None,
 ) -> CHILmesh:
     """Convert ``domain`` (triangular) into a quad CHILmesh.
 
@@ -358,6 +378,11 @@ def tri2quad_routine(
             before OE) + augmenting-path saturation — **zero interior residual
             tris**, requires skeleton layers. Default stays ``"matching"`` until
             the faithful path passes full MATLAB parity (spec FR-002a).
+        minimize_boundary_change: prefer ops that do not alter ORIGINAL boundary
+            vertices when clearing residual boundary tris — drop (preserve a,b)
+            over squeeze (collapse, which moves+deletes them). ``None`` →
+            auto: True for ``method="faithful"``, False for ``method="matching"``
+            (keeps matching's prior squeeze behaviour + parity baselines).
 
     Returns:
         A new CHILmesh of quads (quad-pure by default), or quads plus residual
@@ -379,8 +404,13 @@ def tri2quad_routine(
 
     if remove_boundary_tris and leftover_idx:
         bset = _boundary_edge_set(tris)
+        mbc = (
+            minimize_boundary_change
+            if minimize_boundary_change is not None
+            else (method == "faithful")  # faithful: preserve original boundary verts
+        )
         quads, points, leftover_idx = _remove_boundary_tris(
-            quads, leftover_idx, tris, points, bset, can_remove_edges
+            quads, leftover_idx, tris, points, bset, can_remove_edges, mbc
         )
 
     quads_arr = (
