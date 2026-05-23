@@ -44,6 +44,28 @@ def _boundary_edge_set(tris: np.ndarray) -> Set[Tuple[int, int]]:
     return {e for e, c in count.items() if c == 1}
 
 
+def _segments_cross(a, b, c, d) -> bool:
+    """True iff open segments ab and cd properly intersect (strict crossing)."""
+    def cross(o, p, q):
+        return (p[0] - o[0]) * (q[1] - o[1]) - (p[1] - o[1]) * (q[0] - o[0])
+
+    d1, d2 = cross(c, d, a), cross(c, d, b)
+    d3, d4 = cross(a, b, c), cross(a, b, d)
+    return (d1 > 0) != (d2 > 0) and (d3 > 0) != (d4 > 0)
+
+
+def _quad_ok(p: np.ndarray) -> bool:
+    """Quad ``p`` (4, 2) is simple (no bowtie), CCW, and non-degenerate."""
+    if _segments_cross(p[0], p[1], p[2], p[3]):
+        return False
+    if _segments_cross(p[1], p[2], p[3], p[0]):
+        return False
+    area2 = float(
+        np.sum(p[:, 0] * np.roll(p[:, 1], -1) - np.roll(p[:, 0], -1) * p[:, 1])
+    )
+    return area2 > 1e-12
+
+
 def _match_tris_to_quads(
     tris: np.ndarray, points: np.ndarray
 ) -> Tuple[List[Tuple[int, int, int, int]], List[int]]:
@@ -229,10 +251,28 @@ def _remove_boundary_tris(
         va, vb = (find(bdy[0][0]), find(bdy[0][1]))
         if va == vb:
             continue
-        rows_with_vb = {r for r, _ in inc.get(vb, ())}
-        if any(np.any(quad_arr[r] == va) for r in rows_with_vb):
-            continue  # squeeze would collapse a quad -> drop tri instead
-        pts[va] = 0.5 * (pts[va] + pts[vb])
+
+        # Moving va to the edge midpoint and rewriting vb->va affects every
+        # quad incident to either vert. Reject the squeeze (drop the tri) if it
+        # would collapse, flip, or self-intersect (bowtie) any of them.
+        new_va = 0.5 * (pts[va] + pts[vb])
+        affected = {r for r, _ in inc.get(va, ())} | {r for r, _ in inc.get(vb, ())}
+        ok = True
+        for r in affected:
+            row = [va if int(v) == vb else int(v) for v in quad_arr[r]]
+            if len(set(row)) != 4:
+                ok = False
+                break
+            poly = np.array(
+                [new_va[:2] if v == va else pts[v][:2] for v in row], dtype=float
+            )
+            if not _quad_ok(poly):
+                ok = False
+                break
+        if not ok:
+            continue  # unsafe squeeze -> drop tri instead
+
+        pts[va] = new_va
         parent[vb] = va
         for (r, c) in inc.get(vb, ()):
             quad_arr[r, c] = va

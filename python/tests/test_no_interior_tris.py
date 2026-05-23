@@ -57,6 +57,31 @@ def _tri_count(mesh: CHILmesh) -> int:
     )
 
 
+def _segments_cross(a, b, c, d) -> bool:
+    def cr(o, p, q):
+        return (p[0] - o[0]) * (q[1] - o[1]) - (p[1] - o[1]) * (q[0] - o[0])
+
+    return (cr(c, d, a) > 0) != (cr(c, d, b) > 0) and (cr(a, b, c) > 0) != (
+        cr(a, b, d) > 0
+    )
+
+
+def _bowtie_count(mesh: CHILmesh) -> int:
+    cl = np.asarray(mesh.connectivity_list)
+    P = mesh.points[:, :2]
+    n = 0
+    for row in cl:
+        el = _normalize(row)
+        if len(el) != 4:
+            continue
+        p = P[list(el)]
+        if _segments_cross(p[0], p[1], p[2], p[3]) or _segments_cross(
+            p[1], p[2], p[3], p[0]
+        ):
+            n += 1
+    return n
+
+
 @pytest.mark.parametrize("fixture_name", FIXTURES)
 def test_tri2quad_zero_interior_tris(fixture_name):
     path = FIXTURE_DIR / fixture_name
@@ -84,6 +109,11 @@ def test_tri2quad_quad_pure(fixture_name):
     assert n_tri == 0, (
         f"{fixture_name}: {n_tri} residual triangles after quad-pure tri2quad "
         f"(expected 0)"
+    )
+    n_bt = _bowtie_count(quad_mesh)
+    assert n_bt == 0, (
+        f"{fixture_name}: {n_bt} self-intersecting (bowtie) quads after boundary-tri "
+        f"removal (expected 0)"
     )
 
 
