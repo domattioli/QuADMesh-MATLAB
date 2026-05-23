@@ -82,15 +82,22 @@ the whole matching completes, apply an **edge-swap recombination** to the pair.
 Current code uses an augmenting-path fixup instead — correct for zero-interior,
 but not the thesis mechanism.
 
-### CR-6 — quad-pure is NOT always achievable, and that's by design
-Perfect matching (Edmonds' Blossom, Remacle) yields fully-quad meshes *only when a
-perfect matching exists* — it often doesn't (odd # of boundary vertices, Fig 3.7),
-and Blossom is too slow for large meshes (p42). QuADMESH+ deliberately chooses
-heuristic matching + boundary point-insertion, **accepting ≤1 residual tri** in
-the typical case. So our "always quad-pure" guarantee is *more aggressive than the
-thesis*; faithful behavior is "minimize residual, add a point to clear the last
-IE_L," not "force zero at any cost." Keep our quad-pure result as a *feature*, but
-do not treat residual-tri as failure when reproducing thesis numbers.
+### CR-6 — residual tris: INTERIOR = always a bug; BOUNDARY = the only kind that may remain
+**Hard invariant (operator-confirmed, see CLAUDE.md):** an *interior* residual
+triangle (no domain-boundary edge) means the implementation is **NOT faithful**.
+A properly-implemented QuADMESH+ never leaves one. Zero interior tris is
+non-negotiable for any path claiming faithfulness.
+
+Only **boundary** residual tris may remain. Even those the thesis minimizes:
+perfect (fully-quad) matching exists only sometimes (odd # of boundary vertices,
+Fig 3.7; Blossom too slow at scale, p42), so the heuristic may legitimately leave
+**≤1 boundary tri**, cleared by adding a boundary point. Our always-zero result is
+a bonus, not the parity criterion — *for boundary tris only*.
+
+Implication for the partial `method="faithful"` sweep: it currently leaves
+**interior** tris (bare sweep, no Ch 4 inter-layer matching) → by this rule it is
+explicitly **not yet faithful**, only a hole-free WIP. M2 (T017/T018) MUST drive
+interior residual to zero before the path is called faithful or made default.
 
 ### CR-7 — post-processing is applied BY LAYER
 Ch 5.2: Doublet Collapse + Quad Vertex Merge are applied **per layer with
