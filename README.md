@@ -6,6 +6,11 @@
 </p>
 
 <p align="center">
+  <strong><a href="https://scholar.google.com/citations?user=IBFSkOcAAAAJ&hl=en">Dominik Mattioli</a><sup>1†</sup>, <a href="https://scholar.google.com/citations?user=mYPzjIwAAAAJ&hl=en">Ethan Kubatko</a><sup>2</sup></strong><br>
+  <sup>†</sup>Corresponding author | <sup>1</sup>Unaffiliated | <sup>2</sup>Ohio State University (CHIL)
+</p>
+
+<p align="center">
   <a href="https://pypi.org/project/admesh2D/"><img src="https://img.shields.io/pypi/v/admesh2D.svg?label=PyPI" alt="PyPI version"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+"></a>
   <a href="https://github.com/domattioli/QuADMESH/actions/workflows/tests.yml"><img src="https://github.com/domattioli/QuADMESH/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
@@ -14,9 +19,11 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License"></a>
 </p>
 
+> **Attention MATLAB users:** This Python library is the actively-developed successor to the original MATLAB codebase. That original code (no longer maintained) is at [02_QuADMESH_Library](https://github.com/domattioli/QuADMESH/tree/main/02_QuADMESH_Library). Version 1.0.0 will come with a MATLAB wrapper of the modernized code (Est. Aug 2026).
+
 ---
 
-## Contents
+## Table of Contents
 
 - [Why QuADMESH](#why-quadmesh)           -- coming soon...
 - [Install](#install)                     -- coming soon...
@@ -73,7 +80,7 @@ As of May 2026 we are so back.
 
 > Mattioli, DO, Kubatko, EJ (2026). QuADMESH: A Quadrangular ADvanced, automatic unstructured MESH generator for 2D hydrodynamic domains. Zenodo. <[https://doi.org/10.5281/zenodo.20264101](https://doi.org/10.5281/zenodo.20350484)>
 
-The DOI `10.5281/zenodo.20264101` resolves to the latest release; version-specific DOIs are listed on the [Zenodo record](https://doi.org/10.5281/zenodo.20264101). A [`CITATION.cff`](CITATION.cff) is provided at the repo root for tools that consume it (GitHub's "Cite this repository" button, Zotero, etc.). Paper copy: [`papers/Conroy-2012-ADMESH.pdf`](papers/Conroy-2012-ADMESH.pdf).
+The DOI `10.5281/zenodo.20264101` resolves to the latest release; version-specific DOIs are listed on the [Zenodo record](https://doi.org/10.5281/zenodo.20350484). A [`CITATION.cff`](CITATION.cff) [will be] provided at the repo root for tools that consume it (GitHub's "Cite this repository" button, Zotero, etc.)
 
 ## Related projects
 
@@ -82,8 +89,8 @@ The DOI `10.5281/zenodo.20264101` resolves to the latest release; version-specif
 
 ## Contact
 
-Dominik Mattioli - ([repo owner](https://github.com/domattioli/QuADMESH))
-Ethan J Kubatko  — [kubatko.3@osu.edu](mailto:kubatko.3@osu.edu)
+#### Dominik Mattioli - ([repo owner](https://github.com/domattioli/QuADMESH))
+#### Ethan J Kubatko  — [kubatko.3@osu.edu](mailto:kubatko.3@osu.edu)
 
 ## License
 
