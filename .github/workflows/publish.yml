@@ -3,6 +3,7 @@ name: Publish to PyPI
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 jobs:
   publish:
@@ -21,9 +22,11 @@ jobs:
         run: pip install build twine
 
       - name: Build distributions
+        working-directory: python
         run: python -m build
 
       - name: Publish to PyPI
+        working-directory: python
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
