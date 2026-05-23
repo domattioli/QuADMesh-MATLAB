@@ -8,15 +8,15 @@ Because an odd triangle count forces at least one unmatched triangle, the bias
 steers that residue onto the domain boundary, where a leftover triangle is
 acceptable.
 
-This guarantees **zero interior residual triangles** in the output (verified
+This guarantees **zero interior residual triangles** after matching (verified
 across the canonical fixtures). Only adjacent tri *pairs* are merged — no new
-points are inserted — so the result is conforming by construction.
+points are inserted — so the matched output is conforming by construction.
 
-NOTE: this is a quad-*dominant* result (boundary triangles may remain), not the
-quad-*pure* output of the MATLAB QuADMESH+ ``removeTrianglesFun`` stage, which
-additionally eliminates boundary triangles via edge bisection/insertion/removal
-(inserting points). The faithful port of that stage is tracked separately; see
-``specs/001-matlab-to-python-port/case-2-design.md``.
+The leftover boundary triangles are then eliminated by ``_remove_boundary_tris``
+(a port of the MATLAB QuADMESH+ ``removeTrianglesFun`` on-mesh-boundary path:
+edge removal for single-boundary-edge tris, truncation otherwise), making the
+final result **quad-pure** by default. Pass ``remove_boundary_tris=False`` to
+keep the quad-*dominant* matched output (padded boundary tris).
 """
 
 from __future__ import annotations
@@ -173,27 +173,103 @@ def _match_tris_to_quads(
     return quads, leftover
 
 
+def _remove_boundary_tris(
+    quads: List[Tuple[int, int, int, int]],
+    leftover_idx: List[int],
+    tris: np.ndarray,
+    points: np.ndarray,
+    bset: Set[Tuple[int, int]],
+    can_remove_edges: bool,
+) -> Tuple[List[Tuple[int, int, int, int]], np.ndarray]:
+    """Eliminate leftover boundary triangles so the output is quad-pure.
+
+    Port of MATLAB ``removeTrianglesFun`` for the on-mesh-boundary case — the
+    only case interior-saturating matching can leave (every leftover tri has
+    >=1 domain-boundary edge). Routing per leftover tri:
+
+    * ``n_bdy == 1`` and ``can_remove_edges`` → **edge removal** (squeeze):
+      collapse the boundary edge by merging its two verts to their midpoint.
+      The tri's two interior edges fuse, so the quads flanking them share an
+      edge and the tri vanishes. Conforming by construction.
+    * otherwise (``n_bdy >= 2``, or ``n_bdy == 1`` with ``can_remove_edges``
+      False) → **drop** the tri (MATLAB ``edgeInsertion`` case-3 truncation).
+
+    A squeeze is skipped (the tri dropped instead) if merging would collapse a
+    quad — i.e. some quad already contains both edge endpoints.
+
+    Returns ``(quads, points)`` with zero residual triangles.
+    """
+    if not leftover_idx:
+        return quads, points
+
+    quad_arr = (
+        np.asarray(quads, dtype=int).reshape(-1, 4)
+        if quads
+        else np.empty((0, 4), dtype=int)
+    )
+    pts = points.copy()
+
+    inc: Dict[int, List[Tuple[int, int]]] = {}
+    for r in range(quad_arr.shape[0]):
+        for c in range(4):
+            inc.setdefault(int(quad_arr[r, c]), []).append((r, c))
+
+    parent: Dict[int, int] = {}
+
+    def find(v: int) -> int:
+        while v in parent:
+            v = parent[v]
+        return v
+
+    for ti in leftover_idx:
+        tri = tris[ti]
+        bdy = [e for e in _tri_edges(tri) if e in bset]
+        if len(bdy) != 1 or not can_remove_edges:
+            continue  # drop (n_bdy >= 2, or edges not removable)
+        va, vb = (find(bdy[0][0]), find(bdy[0][1]))
+        if va == vb:
+            continue
+        rows_with_vb = {r for r, _ in inc.get(vb, ())}
+        if any(np.any(quad_arr[r] == va) for r in rows_with_vb):
+            continue  # squeeze would collapse a quad -> drop tri instead
+        pts[va] = 0.5 * (pts[va] + pts[vb])
+        parent[vb] = va
+        for (r, c) in inc.get(vb, ()):
+            quad_arr[r, c] = va
+            inc.setdefault(va, []).append((r, c))
+        inc[vb] = []
+
+    return [tuple(int(v) for v in row) for row in quad_arr], pts
+
+
 def tri2quad_routine(
     domain: CHILmesh,
     can_remove_edges: bool = True,
     parent: Optional[CHILmesh] = None,
     aggressive: bool = False,
+    remove_boundary_tris: bool = True,
 ) -> CHILmesh:
-    """Convert ``domain`` (triangular) into a quad-dominant CHILmesh.
+    """Convert ``domain`` (triangular) into a quad CHILmesh.
 
     Adjacent triangles are paired into quadrilaterals via interior-saturating
-    matching, guaranteeing zero interior residual triangles. Any leftover
-    triangles lie on the domain boundary and are emitted as padded rows.
+    matching, guaranteeing zero interior residual triangles. The leftover
+    boundary triangles are then eliminated (``removeTrianglesFun`` port) so the
+    result is **quad-pure**: ``n_bdy == 1`` tris are squeezed out via edge
+    removal, ``n_bdy >= 2`` tris are truncated.
 
     Args:
         domain: Triangular CHILmesh to convert.
-        can_remove_edges: Reserved for the faithful ``removeTrianglesFun`` port
-            (boundary-tri elimination); currently unused by the matching path.
+        can_remove_edges: Allow boundary-edge collapse (squeeze) for ``n_bdy``
+            == 1 leftover tris. If False, those tris are dropped instead.
         parent: Original parent mesh; only used to inherit ``grid_name``.
         aggressive: Reserved; currently unused.
+        remove_boundary_tris: Eliminate leftover boundary triangles for a
+            quad-pure result (default). Set False to emit them as padded rows
+            (quad-dominant — the prior matching-only behaviour).
 
     Returns:
-        A new CHILmesh of quads plus any residual boundary triangles (padded).
+        A new CHILmesh of quads (quad-pure by default), or quads plus residual
+        boundary triangles (padded) when ``remove_boundary_tris`` is False.
     """
     if parent is None:
         parent = domain
@@ -202,6 +278,13 @@ def tri2quad_routine(
     tris = np.asarray(domain.connectivity_list)[:, :3].astype(int)
 
     quads, leftover_idx = _match_tris_to_quads(tris, points)
+
+    if remove_boundary_tris and leftover_idx:
+        bset = _boundary_edge_set(tris)
+        quads, points = _remove_boundary_tris(
+            quads, leftover_idx, tris, points, bset, can_remove_edges
+        )
+        leftover_idx = []
 
     quads_arr = (
         np.asarray(quads, dtype=int).reshape(-1, 4)

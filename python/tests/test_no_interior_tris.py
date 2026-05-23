@@ -51,16 +51,38 @@ def _interior_tri_count(mesh: CHILmesh) -> int:
     )
 
 
+def _tri_count(mesh: CHILmesh) -> int:
+    return sum(
+        1 for r in np.asarray(mesh.connectivity_list) if len(_normalize(r)) == 3
+    )
+
+
 @pytest.mark.parametrize("fixture_name", FIXTURES)
 def test_tri2quad_zero_interior_tris(fixture_name):
     path = FIXTURE_DIR / fixture_name
     if not path.exists():
         pytest.skip(f"fixture missing: {path}")
     mesh = CHILmesh.read_from_fort14(path)
-    quad_mesh = tri2quad(mesh, can_remove_edges=True)
+    # Matching-only path (no boundary removal): interior must already be zero.
+    quad_mesh = tri2quad(mesh, can_remove_edges=True, remove_boundary_tris=False)
     n_interior = _interior_tri_count(quad_mesh)
     assert n_interior == 0, (
-        f"{fixture_name}: {n_interior} interior residual triangles after tri2quad "
+        f"{fixture_name}: {n_interior} interior residual triangles after matching "
+        f"(expected 0)"
+    )
+
+
+@pytest.mark.parametrize("fixture_name", FIXTURES)
+def test_tri2quad_quad_pure(fixture_name):
+    """Default tri2quad eliminates ALL triangles (interior and boundary)."""
+    path = FIXTURE_DIR / fixture_name
+    if not path.exists():
+        pytest.skip(f"fixture missing: {path}")
+    mesh = CHILmesh.read_from_fort14(path)
+    quad_mesh = tri2quad(mesh, can_remove_edges=True)
+    n_tri = _tri_count(quad_mesh)
+    assert n_tri == 0, (
+        f"{fixture_name}: {n_tri} residual triangles after quad-pure tri2quad "
         f"(expected 0)"
     )
 
