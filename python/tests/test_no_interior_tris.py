@@ -117,6 +117,22 @@ def test_tri2quad_quad_pure(fixture_name):
     )
 
 
+@pytest.mark.parametrize("fixture_name", ["Test_Case_1.14", "square_mesh_test.14"])
+def test_tri2quad_faithful_path_valid(fixture_name):
+    """The faithful layer-sweep path is quad-pure, conforming, bowtie-free.
+
+    (Partial M2: pairing rate is lower than the matching default — quality is
+    not yet asserted here, only validity.)
+    """
+    path = FIXTURE_DIR / fixture_name
+    if not path.exists():
+        pytest.skip(f"fixture missing: {path}")
+    mesh = CHILmesh.read_from_fort14(path)
+    q = tri2quad(mesh, method="faithful")
+    assert _tri_count(q) == 0, f"{fixture_name}: faithful path left residual tris"
+    assert _bowtie_count(q) == 0, f"{fixture_name}: faithful path produced bowties"
+
+
 def test_tri2quad_conforming_and_valid():
     """Quads must be non-degenerate and the mesh conforming (no edge in >2 elems)."""
     path = FIXTURE_DIR / "Test_Case_1.14"

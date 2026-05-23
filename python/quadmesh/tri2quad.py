@@ -282,12 +282,51 @@ def _remove_boundary_tris(
     return [tuple(int(v) for v in row) for row in quad_arr], pts
 
 
+def _faithful_layer_sweep(
+    domain: CHILmesh, tris: np.ndarray
+) -> Tuple[List[Tuple[int, int, int, int]], List[int]]:
+    """Per-layer every-other-edge sweep (port of the Tri2QuadRoutine layer loop).
+
+    Runs ``identify_edges_in_layer`` (the every-other-edge primitive) over each
+    skeleton layer innermost→outward and merges the flagged tri pairs into quads.
+
+    PARTIAL faithful path (M2 in progress): this is the bare sweep primitive
+    *without* the Chapter-4 heuristics (IE-before-OE, T1/T2 tiebreakers) or the
+    inter-layer matching, so its pairing rate is lower than the fast matching
+    path — more leftover boundary tris remain. Tracked: faithful-port-tasks T016-T019.
+    """
+    from .identify_edges import identify_edges_in_layer
+    from ._topology import merge_tri_pairs
+
+    quads: List[Tuple[int, int, int, int]] = []
+    merged: Set[int] = set()
+    for layer in range(domain.n_layers):
+        sel = identify_edges_in_layer(domain, layer)
+        red = sel.removed_edge_ids
+        if red.size == 0:
+            continue
+        e2e = sel.sub_mesh.adjacencies["Edge2Elem"]
+        pairs = e2e[red]
+        pairs = pairs[(pairs[:, 0] >= 0) & (pairs[:, 1] >= 0)]
+        if pairs.size == 0:
+            continue
+        for row in np.asarray(merge_tri_pairs(sel.sub_mesh, pairs)).reshape(-1, 4):
+            quads.append(tuple(int(v) for v in row))
+        gids = np.asarray(sel.elem_ids_global, dtype=int)
+        for a, b in pairs:
+            merged.add(int(gids[a]))
+            merged.add(int(gids[b]))
+    leftover = [i for i in range(len(tris)) if i not in merged]
+    return quads, leftover
+
+
 def tri2quad_routine(
     domain: CHILmesh,
     can_remove_edges: bool = True,
     parent: Optional[CHILmesh] = None,
     aggressive: bool = False,
     remove_boundary_tris: bool = True,
+    method: str = "matching",
 ) -> CHILmesh:
     """Convert ``domain`` (triangular) into a quad CHILmesh.
 
@@ -306,6 +345,11 @@ def tri2quad_routine(
         remove_boundary_tris: Eliminate leftover boundary triangles for a
             quad-pure result (default). Set False to emit them as padded rows
             (quad-dominant — the prior matching-only behaviour).
+        method: ``"matching"`` (default) = fast global interior-saturating
+            matching. ``"faithful"`` = the thesis per-layer every-other-edge
+            sweep (partial — bare primitive, no Ch 4 heuristics yet; see
+            faithful-port-plan.md). Default stays ``"matching"`` until the
+            faithful path passes parity (spec FR-002a).
 
     Returns:
         A new CHILmesh of quads (quad-pure by default), or quads plus residual
@@ -317,7 +361,12 @@ def tri2quad_routine(
     points = domain.points.copy()
     tris = np.asarray(domain.connectivity_list)[:, :3].astype(int)
 
-    quads, leftover_idx = _match_tris_to_quads(tris, points)
+    if method == "faithful":
+        quads, leftover_idx = _faithful_layer_sweep(domain, tris)
+    elif method == "matching":
+        quads, leftover_idx = _match_tris_to_quads(tris, points)
+    else:
+        raise ValueError(f"unknown method {method!r} (use 'matching' or 'faithful')")
 
     if remove_boundary_tris and leftover_idx:
         bset = _boundary_edge_set(tris)
