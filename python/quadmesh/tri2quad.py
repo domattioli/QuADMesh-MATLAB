@@ -67,13 +67,19 @@ def _quad_ok(p: np.ndarray) -> bool:
 
 
 def _match_tris_to_quads(
-    tris: np.ndarray, points: np.ndarray
+    tris: np.ndarray, points: np.ndarray, prio_arr: Optional[np.ndarray] = None
 ) -> Tuple[List[Tuple[int, int, int, int]], List[int]]:
     """Pair adjacent triangles into quads, saturating interior triangles.
 
     Args:
         tris: ``(N, 3)`` triangle connectivity.
         points: ``(M, >=2)`` coordinates (for CCW orientation of quads).
+        prio_arr: optional ``(N,)`` int priority per triangle (lower = matched
+            first). ``None`` → interior-first (0 if interior else 1). The
+            ``method="faithful"`` path passes a layer-ordered priority
+            (``_layer_priority``: innermost layer first, IE before OE).
+            Whatever the priority, the augmenting-path fixup still guarantees
+            **zero interior residual triangles**.
 
     Returns:
         ``(quads, leftover_idx)`` — list of CCW 4-tuples and the indices of
@@ -103,8 +109,13 @@ def _match_tris_to_quads(
     matched: Dict[int, int] = {}
     used: Set[int] = set()
 
+    if prio_arr is None:
+        prio_arr = np.fromiter(
+            (0 if i in interior else 1 for i in range(n)), dtype=int, count=n
+        )
+
     def prio(i: int) -> int:
-        return 0 if i in interior else 1
+        return int(prio_arr[i])
 
     def augment(start: int) -> bool:
         """Alternating-path search to match a stranded interior tri by
@@ -293,42 +304,24 @@ def _remove_boundary_tris(
     return [tuple(int(v) for v in row) for row in quad_arr], pts, kept
 
 
-def _faithful_layer_sweep(
-    domain: CHILmesh, tris: np.ndarray
-) -> Tuple[List[Tuple[int, int, int, int]], List[int]]:
-    """Per-layer every-other-edge sweep (port of the Tri2QuadRoutine layer loop).
+def _layer_priority(domain: CHILmesh, n: int) -> np.ndarray:
+    """Per-triangle match priority from the skeleton layers (Ch 4 ordering).
 
-    Runs ``identify_edges_in_layer`` (the every-other-edge primitive) over each
-    skeleton layer innermost→outward and merges the flagged tri pairs into quads.
-
-    PARTIAL faithful path (M2 in progress): this is the bare sweep primitive
-    *without* the Chapter-4 heuristics (IE-before-OE, T1/T2 tiebreakers) or the
-    inter-layer matching, so its pairing rate is lower than the fast matching
-    path — more leftover boundary tris remain. Tracked: faithful-port-tasks T016-T019.
+    Encodes the thesis priorities as one sortable int (lower = matched first):
+    **innermost layer first**, and **IE before OE** within a layer. A tri in
+    layer ``li`` gets ``2*(n_layers-1-li) + (0 if IE else 1)``. Triangles with no
+    layer membership sort last.
     """
-    from .identify_edges import identify_edges_in_layer
-    from ._topology import merge_tri_pairs
-
-    quads: List[Tuple[int, int, int, int]] = []
-    merged: Set[int] = set()
-    for layer in range(domain.n_layers):
-        sel = identify_edges_in_layer(domain, layer)
-        red = sel.removed_edge_ids
-        if red.size == 0:
-            continue
-        e2e = sel.sub_mesh.adjacencies["Edge2Elem"]
-        pairs = e2e[red]
-        pairs = pairs[(pairs[:, 0] >= 0) & (pairs[:, 1] >= 0)]
-        if pairs.size == 0:
-            continue
-        for row in np.asarray(merge_tri_pairs(sel.sub_mesh, pairs)).reshape(-1, 4):
-            quads.append(tuple(int(v) for v in row))
-        gids = np.asarray(sel.elem_ids_global, dtype=int)
-        for a, b in pairs:
-            merged.add(int(gids[a]))
-            merged.add(int(gids[b]))
-    leftover = [i for i in range(len(tris)) if i not in merged]
-    return quads, leftover
+    layers = domain.layers
+    nl = domain.n_layers
+    prio = np.full(n, 2 * nl + 1, dtype=int)
+    for li in range(nl):
+        rank = nl - 1 - li  # innermost layer (largest li) -> rank 0
+        for e in np.asarray(layers["IE"][li], dtype=int):
+            prio[int(e)] = 2 * rank
+        for e in np.asarray(layers["OE"][li], dtype=int):
+            prio[int(e)] = 2 * rank + 1
+    return prio
 
 
 def tri2quad_routine(
@@ -357,10 +350,11 @@ def tri2quad_routine(
             quad-pure result (default). Set False to emit them as padded rows
             (quad-dominant — the prior matching-only behaviour).
         method: ``"matching"`` (default) = fast global interior-saturating
-            matching. ``"faithful"`` = the thesis per-layer every-other-edge
-            sweep (partial — bare primitive, no Ch 4 heuristics yet; see
-            faithful-port-plan.md). Default stays ``"matching"`` until the
-            faithful path passes parity (spec FR-002a).
+            matching (``compute_layers`` not required). ``"faithful"`` =
+            layer-ordered matching (Ch 4 priority: innermost layer first, IE
+            before OE) + augmenting-path saturation — **zero interior residual
+            tris**, requires skeleton layers. Default stays ``"matching"`` until
+            the faithful path passes full MATLAB parity (spec FR-002a).
 
     Returns:
         A new CHILmesh of quads (quad-pure by default), or quads plus residual
@@ -373,7 +367,8 @@ def tri2quad_routine(
     tris = np.asarray(domain.connectivity_list)[:, :3].astype(int)
 
     if method == "faithful":
-        quads, leftover_idx = _faithful_layer_sweep(domain, tris)
+        prio = _layer_priority(domain, len(tris))
+        quads, leftover_idx = _match_tris_to_quads(tris, points, prio)
     elif method == "matching":
         quads, leftover_idx = _match_tris_to_quads(tris, points)
     else:

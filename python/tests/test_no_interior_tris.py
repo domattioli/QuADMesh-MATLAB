@@ -117,39 +117,22 @@ def test_tri2quad_quad_pure(fixture_name):
     )
 
 
-@pytest.mark.parametrize("fixture_name", ["Test_Case_1.14", "square_mesh_test.14"])
-def test_tri2quad_faithful_path_no_holes(fixture_name):
-    """Faithful layer-sweep path: bowtie-free and HOLE-FREE.
-
-    Partial M2 (bare sweep, no Ch 4 heuristics) leaves interior tris unmatched.
-    Those MUST be emitted, not dropped — dropping an interior tri punches a hole.
-    Assert every interior leftover survives in the output. (Boundary tris may be
-    squeezed/truncated — that is legitimate retraction, not a hole. Quality /
-    quad-purity not asserted; matching remains the quad-pure default.)
-    """
+@pytest.mark.parametrize(
+    "fixture_name", ["Test_Case_1.14", "square_mesh_test.14", "structuredMesh1.14"]
+)
+def test_tri2quad_faithful_path(fixture_name):
+    """Faithful layer-ordered path: ZERO interior residual tris (the invariant),
+    quad-pure, conforming, bowtie-free."""
     path = FIXTURE_DIR / fixture_name
     if not path.exists():
         pytest.skip(f"fixture missing: {path}")
-    from quadmesh.tri2quad import (
-        _boundary_edge_set,
-        _faithful_layer_sweep,
-        _tri_edges,
-    )
-
     mesh = CHILmesh.read_from_fort14(path)
-    tris = np.asarray(mesh.connectivity_list)[:, :3].astype(int)
-    _, leftover = _faithful_layer_sweep(mesh, tris)
-    bset = _boundary_edge_set(tris)
-    n_interior_left = sum(
-        1 for i in leftover if not any(e in bset for e in _tri_edges(tris[i]))
-    )
-
     q = tri2quad(mesh, method="faithful")
-    assert _bowtie_count(q) == 0, f"{fixture_name}: faithful path produced bowties"
-    assert _tri_count(q) >= n_interior_left, (
-        f"{fixture_name}: output has {_tri_count(q)} tris but {n_interior_left} "
-        f"interior leftovers — interior tris dropped (holes)"
+    assert _interior_tri_count(q) == 0, (
+        f"{fixture_name}: faithful path left interior residual tris — NOT faithful"
     )
+    assert _tri_count(q) == 0, f"{fixture_name}: faithful path not quad-pure"
+    assert _bowtie_count(q) == 0, f"{fixture_name}: faithful path produced bowties"
 
 
 def test_tri2quad_conforming_and_valid():
