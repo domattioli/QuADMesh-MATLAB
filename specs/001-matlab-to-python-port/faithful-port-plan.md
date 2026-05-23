@@ -5,6 +5,105 @@
 **Author:** session 2026-05-23 (post quad-pure + bowtie-safe boundary work).
 **Owns:** issue #25 (faithful `removeTrianglesFun` port). Related: #26 (field-guided pairing).
 
+> **Cross-referenced against the source thesis** — Mattioli, *QuADMESH+: A
+> Quadrangular ADvanced Mesh Generator* (M.S., Ohio State), `docs/Mattioli_Thesis.pdf`
+> (committed at dd3ff03). Section 0 records the corrections this forced.
+
+---
+
+## 0. Thesis cross-reference — corrections to the rest of this plan
+
+Reading the thesis (Ch 3 "Building an Indirect Method", Ch 4 "Matching
+Algorithms", Ch 5 "Post-Processing By Layer", + figures) overturns the central
+premise the rest of this doc was written on. **Where Sections 1–11 below
+disagree with this section, this section wins.**
+
+### CR-1 (CRITICAL) — the faithful method is heuristic MATCHING, not every-other-edge
+The thesis abstract (p3) and Ch 4 define QuADMESH+ as *"a heuristic
+decision-making algorithm for matching two triangular elements together."* It is
+a **layered, two-stage, priority-driven triangle matching**, worked **innermost
+layer → outward to the boundary**. My earlier framing — "matching = the
+unfaithful shortcut, `identifyEdgesFun_v2` every-other-edge = the faithful
+method" — is **backwards**. Consequences:
+- The current Python interior-saturating matching is a *crude approximation* of
+  the thesis algorithm (interior-first ≈ IE-before-OE; most-constrained ≈
+  fewest-eligible-neighbors). It is **directionally faithful**, not a divergent hack.
+- The shipped MATLAB `identifyEdgesFun_v2` (every-other-edge along a path) is a
+  *simpler realization* than the Ch 4 heuristic. **Open reconciliation:** is the
+  repo MATLAB a production simplification of the thesis, or a different vintage?
+  The thesis is the authoritative spec; the MATLAB is one implementation of it.
+  Verify per-layer behavior against both.
+
+### CR-2 — three operations are missing from this plan entirely
+The thesis relies on recombination ops this plan never mentioned:
+- **Edge Swap** (Fig 3.2, p39) — two tris sharing **one vertex** → reconnect the
+  diagonal so they share an **edge** → mergeable into a quad. From Remacle et al.
+- **Vertex Duplication** (Fig 3.3, p39) — duplicate a shared vertex to split a
+  tri fan so tris pair off.
+- **Edge Flip / "walking"** (Fig 3.6 p40, Fig 4.4 p69) — flip edges along a
+  walkable path to *move* an isolated triangle toward a partner until they share
+  an edge, then merge (Fig 3.6c). Used in the boundary layer to fix walkability.
+
+### CR-3 — matching is TWO stages with OPPOSITE priorities
+- **Interior layers (Ch 4.1):** match **IE_L before OE_L** (only IE_L can become
+  isolated; OE_L can still match inter-layer with L−1). Exhaust all intra-layer
+  matchings before any inter-layer L↔L−1. T1 selection = fewest eligible
+  neighbors first; explicit T1/T2 tiebreaker ladders (p64–66).
+- **Boundary layer (Ch 4.2):** **OE_L before IE_L** (opposite!) — try to leave the
+  last unmatched tri as an IE_L, which is removable cleanly by *adding* a
+  boundary point. Pre-process: **edge-flip** the leftover RE_L + a neighbor to
+  improve walkability before matching.
+
+### CR-4 — boundary-tri op preference is INVERTED in the current code
+Thesis (p70): *"a more appealing outcome of manipulating a mesh boundary involves
+the addition of a point rather than the removal of one — added resolution is
+better than diminished resolution."* Preference order:
+1. **Edge insertion / add boundary point** (Fig 3.4) — IE_L tri → quad. **Preferred.**
+2. Edge swap / vertex duplication — if two tris share a vertex.
+3. Edge collapse / removal (Fig 3.5) — OE_L fallback only.
+
+The current `_remove_boundary_tris` does **squeeze (collapse) + drop** — i.e. the
+*least* preferred ops, never the preferred point-insertion. This is the prime
+suspect for our low quality (0.739 vs thesis greedy 0.8095).
+
+### CR-5 — isolated-tri handling = intentional pairing + edge-swap fixup
+Thesis (p66): when a tri unintentionally isolates, *intentionally* isolate
+another unmatched tri that **shares a vertex** with it (form a "pair"), then after
+the whole matching completes, apply an **edge-swap recombination** to the pair.
+Current code uses an augmenting-path fixup instead — correct for zero-interior,
+but not the thesis mechanism.
+
+### CR-6 — quad-pure is NOT always achievable, and that's by design
+Perfect matching (Edmonds' Blossom, Remacle) yields fully-quad meshes *only when a
+perfect matching exists* — it often doesn't (odd # of boundary vertices, Fig 3.7),
+and Blossom is too slow for large meshes (p42). QuADMESH+ deliberately chooses
+heuristic matching + boundary point-insertion, **accepting ≤1 residual tri** in
+the typical case. So our "always quad-pure" guarantee is *more aggressive than the
+thesis*; faithful behavior is "minimize residual, add a point to clear the last
+IE_L," not "force zero at any cost." Keep our quad-pure result as a *feature*, but
+do not treat residual-tri as failure when reproducing thesis numbers.
+
+### CR-7 — post-processing is applied BY LAYER
+Ch 5.2: Doublet Collapse + Quad Vertex Merge are applied **per layer with
+prioritization** (QVM creates quad strips; 5-quad sets can overlap, so ordering
+matters). Current `post_process_routine` applies them globally. Faithful = layered.
+
+### CR-8 — quality reference points (from the thesis)
+- Greedy approach: 2417 tris → 1087 quads + 255 residual tris, **0.8095** mean
+  quality after smoothing (p38). Original triangular mesh: 0.913.
+- Our current matching+squeeze: **0.739**. Below even the Greedy baseline → our
+  pairing heuristic is cruder than thesis Greedy *and* our boundary collapse hurts.
+  Target after a faithful port: ≥ 0.81.
+
+### Net effect on the plan below
+- Section 1's "same pairing algorithm: every-other-edge" → **wrong**; replace with
+  the Ch 4 two-stage heuristic matching.
+- The biggest faithfulness lever is **not** "wire the every-other-edge sweep"; it is
+  (a) implement the Ch 4 T1/T2 heuristic matching, (b) add edge-swap / edge-flip /
+  vertex-duplication, (c) flip the boundary-tri op preference to point-insertion.
+- The existing Python matching is a viable *starting point* to evolve toward the
+  thesis heuristic, rather than something to discard for the every-other-edge sweep.
+
 ---
 
 ## 1. What "faithful" means (definition of done)
@@ -13,12 +112,17 @@ A faithful port reproduces the MATLAB QuADMESH+ pipeline (`02_QuADMESH_Library/0
 **algorithmically**, not merely producing *some* valid quad mesh:
 
 1. **Same pipeline shape:** `createQuadDomain → Tri2QuadRoutine (layer sweep) → PostProcessRoutine`.
-2. **Same pairing algorithm:** every-other-edge removal along each layer's
-   outer-vertex path (`identifyEdgesFun_v2`), worked outward→inward — **not** a
-   global matching heuristic.
-3. **Same leftover-tri handling:** `removeTrianglesFun` with all three sub-ops
-   (`edgeBisection`, `edgeInsertion`, `edgeRemoval`) including the iLayer-1
-   re-triangulation, producing **quad-pure** output.
+2. **Same pairing algorithm:** the Ch 4 **two-stage layered heuristic matching**
+   (interior layers IE-before-OE; boundary layer OE-before-IE), worked
+   innermost→outward, with the documented T1/T2 tiebreaker ladders — *plus* the
+   recombination ops Edge Swap, Vertex Duplication, Edge Flip (see CR-1, CR-2,
+   CR-3). (NB: the shipped MATLAB realizes the per-layer step as `identifyEdgesFun_v2`
+   every-other-edge; reconcile against the thesis heuristic — CR-1.)
+3. **Same leftover-tri handling:** boundary tris cleared with **point-insertion
+   preferred** (add boundary point → quad), edge-swap/vertex-duplication when two
+   tris share a vertex, and edge-collapse only as fallback (CR-4) — *not* the
+   squeeze/drop the current code uses. Accept the thesis's ≤1-residual behavior
+   (CR-6); our zero-residual result is a bonus, not the parity criterion.
 4. **Verified parity:** output element count, quad fraction, and mean quality
    match MATLAB ground truth within a tight tolerance (target ±2% count, ±0.02
    quality) on the canonical fixtures, **not** pinned to our own Python output.
@@ -67,7 +171,9 @@ greenfield rewrite.
 
 | ID | Gap | Why it breaks faithfulness | Severity |
 |---|---|---|---|
-| **G1** | Pairing = matching, not every-other-edge layer sweep | Different quad topology; quality 0.739 vs ~0.79 | high |
+| **G1** | Pairing heuristic is crude vs thesis Ch 4 (no IE/OE priority, no T1/T2 tiebreakers, single-stage not interior+boundary) | Different quad topology; quality 0.739 vs thesis 0.81+ (CR-1, CR-3) | high |
+| **G1b** | **Edge Swap / Vertex Duplication / Edge Flip not implemented** | Core QuADMESH+ ops for isolated/remaining tris + walkability absent (CR-2, CR-5) | high |
+| **G1c** | Boundary-tri op preference inverted (squeeze/drop, not point-insertion) | Lowers quality; non-faithful boundary topology (CR-4) | high |
 | **G2** | `removeTrianglesFun` insertion ops + iLayer-1 retri unported | Boundary/interior leftover tris handled by squeeze/drop, not MATLAB insertion | high |
 | **G3** | No mutable `LayerState` + adjacency rebuild mid-sweep | Insertion ops mutate layer membership + connectivity; sweep needs live topology | high (blocks G2) |
 | **G4** | No MATLAB ground-truth parity | "Faithful" is unverifiable; baselines are our own output | high |
@@ -143,8 +249,25 @@ Without ground truth, "faithful" is unfalsifiable. Build the oracle before the e
 **Acceptance:** at least one ground-truth source per canonical fixture, committed under `tests/golden/`.
 **Risk:** Octave incompatibility (high). Mitigation: 0.1 and 0.3 are independent fallbacks.
 
-### Phase 1 — Validate `identify_edges_in_layer` vs ground truth (G1, part 1)
-The port exists; verify it actually reproduces MATLAB's `removedEdgeIDs` per layer.
+> **Re-prioritized per Section 0:** the faithful pairing is the Ch 4 heuristic
+> matching + recombination ops, not merely the every-other-edge sweep. Phases 1–3
+> below are reframed accordingly. The existing `identify_edges_in_layer` is a
+> reference for the per-layer mechanics, not the whole algorithm.
+
+### Phase 1 — Ch 4 heuristic matching engine (G1) + validate vs ground truth
+Build/evolve the two-stage matching to match the thesis, not just port one function.
+
+- 1.0 Decide: evolve the current `_match_tris_to_quads` toward the Ch 4 heuristic,
+  vs. drive it from `identify_edges_in_layer`. Recommend **evolve** — the current
+  matching already has interior-first + most-constrained, the seeds of IE-first +
+  fewest-eligible-neighbors.
+- 1.1 Implement **interior-layer matching** (Ch 4.1): per-layer, IE-before-OE,
+  eligible-neighbor counting with flagged-edge handling, T1 selection
+  (fewest-eligible → tiebreakers p64) + T2 selection (tiebreaker ladder p65–66),
+  intra-layer-before-inter-layer, innermost→outward.
+- 1.2 Implement **boundary-layer matching** (Ch 4.2): OE-before-IE; walkability
+  edge-flip pre-pass on RE_L.
+- 1.3 Validate per-layer matched pairs (as vertex-pair sets) vs Phase-0 golden.
 
 - 1.1 Drive `identify_edges_in_layer` per layer on each fixture; compare
   `removed_edge_ids` (as vertex-pair sets, index-independent) to Phase-0 golden.
@@ -159,18 +282,27 @@ The port exists; verify it actually reproduces MATLAB's `removedEdgeIDs` per lay
 **Acceptance:** per-layer `removed_edge_ids` match golden on all fixtures (or
 documented, justified deviations with equal/better quality).
 
-### Phase 2 — Wire merge + assemble (G1, part 2)
-- 2.1 In a new `method="faithful"` branch of `tri2quad_routine`, call
-  `identify_edges_in_layer` → `merge_tri_pairs` → accumulate quads.
-- 2.2 Assemble output CHILmesh (mirror `Tri2QuadRoutine.m:52–56`).
-- 2.3 At this milestone the faithful path is **quad-dominant** (leftover tris
-  still padded) but uses the *correct pairing*. Compare quality to matching:
-  expect recovery toward MATLAB.
+### Phase 2 — Recombination ops + merge/assemble (G1b)
+- 2.1 Implement the three missing ops (CR-2): **Edge Swap** (vertex-adjacent tris
+  → edge-adjacent), **Vertex Duplication**, **Edge Flip** (+ the "walk along a
+  path" driver, Fig 3.6). Unit-test each on minimal meshes.
+- 2.2 Wire isolated-tri handling per CR-5: intentional vertex-pairing + post-match
+  edge-swap fixup (compare against the current augmenting-path approach; keep
+  whichever holds invariants with higher quality).
+- 2.3 `method="faithful"` branch of `tri2quad_routine`: matching (Phase 1) →
+  ops → `merge_tri_pairs` → accumulate; assemble CHILmesh (mirror
+  `Tri2QuadRoutine.m:52–56`). Milestone: quad-dominant with *correct pairing*;
+  expect quality recovery toward 0.81.
 
 **Acceptance:** faithful-path quad fraction + mean quality ≥ matching path; 0 interior tris.
 
-### Phase 3 — `removeTrianglesFun` faithful (G2 + G3)
-The big one. Complete the sub-ops + thread mutable state.
+### Phase 3 — Boundary-tri clearing, faithful preference order (G1c + G2 + G3)
+The big one. Flip the op preference + complete the sub-ops + thread mutable state.
+
+- 3.0 **Reverse the boundary-tri preference (CR-4):** prefer **edge insertion /
+  add-boundary-point** (Fig 3.4) for IE_L tris → quad; edge-swap/vertex-dup when a
+  vertex is shared; edge-collapse (current squeeze) only as OE_L fallback. This
+  alone should lift quality materially. Keep the bowtie-safe `_quad_ok` guard.
 
 - 3.1 **`LayerState`** dataclass + `from_mesh` + mutation helpers.
 - 3.2 **`edge_bisection` case 2** — opposite-tri split (`edgeBisection.m:47–96`):
