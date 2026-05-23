@@ -21,6 +21,7 @@ additionally eliminates boundary triangles via edge bisection/insertion/removal
 
 from __future__ import annotations
 
+import heapq
 from collections import deque
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -80,8 +81,8 @@ def _match_tris_to_quads(
     matched: Dict[int, int] = {}
     used: Set[int] = set()
 
-    def free_neighbors(i: int) -> List[int]:
-        return [j for j in adj[i] if j not in used]
+    def prio(i: int) -> int:
+        return 0 if i in interior else 1
 
     def augment(start: int) -> bool:
         """Alternating-path search to match a stranded interior tri by
@@ -113,28 +114,34 @@ def _match_tris_to_quads(
                     queue.append(partner)
         return False
 
-    # Greedy: interior triangles first, most-constrained (fewest free neighbors).
-    remaining = set(range(n))
-    while remaining:
-        i = min(
-            remaining,
-            key=lambda x: (0 if x in interior else 1, len(free_neighbors(x))),
-        )
-        remaining.discard(i)
+    # Greedy match, interior triangles first, most-constrained (fewest free
+    # neighbors) first, via a lazy heap. Near-linear: each match only updates
+    # the matched pair's neighbors, avoiding an O(n^2) full rescan per pick.
+    free_deg = [len(adj[i]) for i in range(n)]
+    heap: List[Tuple[int, int, int]] = [(prio(i), free_deg[i], i) for i in range(n)]
+    heapq.heapify(heap)
+
+    while heap:
+        _, d, i = heapq.heappop(heap)
         if i in used:
             continue
-        cand = free_neighbors(i)
+        if d != free_deg[i]:  # stale entry → reinsert at current degree
+            heapq.heappush(heap, (prio(i), free_deg[i], i))
+            continue
+        cand = [j for j in adj[i] if j not in used]
         if not cand:
             continue
-        j = min(
-            cand,
-            key=lambda y: (0 if y in interior else 1, len(free_neighbors(y))),
-        )
+        j = min(cand, key=lambda y: (prio(y), free_deg[y]))
         matched[i] = j
         matched[j] = i
         used.add(i)
         used.add(j)
-        remaining.discard(j)
+        # Matching i,j removes them as free neighbors of their own neighbors.
+        for x in (i, j):
+            for nb in adj[x]:
+                if nb not in used:
+                    free_deg[nb] -= 1
+                    heapq.heappush(heap, (prio(nb), free_deg[nb], nb))
 
     # Fixup: any interior triangle still unmatched → reroute via augmenting path.
     for i in list(interior):
