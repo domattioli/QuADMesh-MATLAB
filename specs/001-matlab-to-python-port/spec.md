@@ -90,7 +90,7 @@ User runs `quadmesh path/to/mesh.14 -o out.14 --post-process` from shell. Reads 
 - **FR-010**: `cleanup_boundary_quads(mesh, can_remove_edges)` MUST identify boundary quads with two adjacent boundary edges and either collapse them (if `can_remove_edges`) or shift the interior vertex.
 - **FR-011**: `remove_unused_vertices(mesh)` MUST drop verts with valence 0 and renumber connectivity.
 - **FR-012**: `create_quad_domain(mesh, polygon=None)` MUST flag tris by their vertices' inclusion in `polygon` (None → all tris).
-- **FR-013**: `run_pipeline(mesh, polygon=None, can_remove_edges=True, n_smooth_iter=50)` MUST chain create_quad_domain → tri2quad → post_process and return the final quad CHILmesh.
+- **FR-013**: `run_pipeline(mesh, polygon=None, can_remove_edges=True, n_smooth_iter=3)` MUST chain create_quad_domain → tri2quad → post_process and return the final quad CHILmesh. (`n_smooth_iter` default 3 = fast FEM; raise for higher quality — MATLAB Main used 100. Threading a `method=` selector — FR-002a — is deferred to the M2 faithful path.)
 - **FR-014**: All indexing MUST be 0-based. `-1` sentinel for "no neighbour" in edge2elem matches chilmesh convention.
 - **FR-015**: CLI `quadmesh INPUT.14 -o OUT.14 [--no-post-process] [--polygon poly.csv]` MUST drive the pipeline end-to-end.
 - **FR-016**: `edge_swap` MUST recombine two triangles sharing **one vertex** into an edge-sharing pair (reconnect the diagonal) so they can merge into a quad (thesis Fig 3.2). Used for the isolated-tri "pair" fixup (Q5) and boundary remaining-tri removal.
@@ -103,6 +103,7 @@ User runs `quadmesh path/to/mesh.14 -o out.14 --post-process` from shell. Reads 
 - **WorkingMesh**: scratch state during tri2quad — accumulated quad rows + points list.
 - **LayerEdgeSelection**: per-layer output of `identify_edges` — sub-mesh, removed edge IDs, paths, boundary edges/verts.
 - **Quad Mesh**: output CHILmesh, mostly quads, optionally some residual padded tris.
+- **Terminology** (D1): "leftover tri" (spec) = "remaining / isolated triangle" (thesis) = "boundary tri" (code) — same concept: a triangle unmatched after pairing. Used interchangeably; prefer "leftover tri" in spec.
 
 ## Success Criteria
 
@@ -118,11 +119,11 @@ User runs `quadmesh path/to/mesh.14 -o out.14 --post-process` from shell. Reads 
 
 **Q1** (Equivalence vs MATLAB): MATLAB binary not available in CI. Verify via property tests + visual inspection on canonical fixtures. Element counts may differ by a few %; topology validity is the hard requirement.
 
-**Q2** (Edge-insertion case-2 retriangulation): MATLAB performs a re-triangulation of iLayer-1 to absorb the new vertex. Port deferred to a v0.2 follow-up; v0.1 inserts the vertex into the outgoing quad and lets later layers absorb it as a regular vert.
+**Q2** (Edge-insertion case-2 retriangulation): MATLAB performs a re-triangulation of iLayer-1 to absorb the new vertex. Deferred (was "v0.2"); now tracked in `faithful-port-tasks.md` M3/T026.
 
 **Q3** (Mesh size scaling): Block_O (~2400 elems) is the largest canonical fixture. Performance not a v0.1 hard requirement, but pipeline should complete in <60s on Block_O.
 
-**Q4** (CleanupBoundaryQuads modes): MATLAB has two modes (collapse vs shift). v0.1 implements collapse (when `can_remove_edges=True`) only; shift mode is a v0.2 follow-up.
+**Q4** (CleanupBoundaryQuads modes): MATLAB has two modes (collapse vs shift). Collapse (when `can_remove_edges=True`) implemented; shift mode deferred (was "v0.2"), tracked in `faithful-port-tasks.md`.
 
 **Q5** (Matching pivot + thesis cross-reference, 2026-05-23): The shipped `tri2quad` deviated from FR-002's faithful sweep to a coarse global interior-saturating **matching** (zero interior tris, quad-dominant), then quad-pure via boundary squeeze/drop. Cross-referencing the source thesis (`docs/Mattioli_Thesis.pdf`, Ch 3–5) clarified that QuADMESH+ is fundamentally **heuristic matching realized as the every-other-edge layer sweep governed by the Ch 4 IE/OE + T1/T2 rules** — sweep and heuristics are the same method at two levels, not alternatives. Resolution: the every-other-edge sweep + Ch 4 heuristics is the faithful target (FR-002); the coarse matching is retained only as an explicit fast fallback (FR-002a). Full plan: `faithful-port-plan.md` (§0 records all corrections CR-1…CR-8); tasks: `faithful-port-tasks.md`.
 

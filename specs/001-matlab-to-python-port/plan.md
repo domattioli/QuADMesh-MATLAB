@@ -1,5 +1,7 @@
 # Implementation Plan: Port MATLAB QuADMESH+ to Python
 
+> **SUPERSEDED for the faithfulness effort** by [faithful-port-plan.md](./faithful-port-plan.md) + [faithful-port-tasks.md](./faithful-port-tasks.md) (2026-05-23, thesis-aligned). This doc covers the original v0.1–0.4 port (done); faithful-port work uses the faithful-* docs.
+
 **Branch**: `claude/affectionate-heisenberg-prShD` | **Date**: 2026-05-20 | **Spec**: [spec.md](./spec.md)
 
 ## Summary

@@ -1,5 +1,7 @@
 # Tasks: Port MATLAB QuADMESH+ to Python
 
+> **SUPERSEDED for the faithfulness effort** by [faithful-port-tasks.md](./faithful-port-tasks.md) (2026-05-23). This tracks the original v0.1–0.4 port (T1–T15, done). New faithful-port tasks live in the faithful-* docs.
+
 **Spec**: [spec.md](./spec.md) · **Plan**: [plan.md](./plan.md)
 **Branch**: `claude/awesome-goodall-Tbur3` (v0.3) / `claude/awesome-goodall-cqPYK` (v0.2) / `claude/affectionate-heisenberg-prShD` (v0.1)
 
