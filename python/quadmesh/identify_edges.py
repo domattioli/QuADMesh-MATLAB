@@ -64,10 +64,15 @@ def identify_edges_in_layer(domain: CHILmesh, layer_idx: int) -> LayerEdgeSelect
         )
 
     # Sub-mesh defined over layer's elements (uses parent's points list).
-    # Skip skeletonization (irrelevant for sub-region) but build adjacencies.
+    # Skip skeletonization (irrelevant for sub-region) but build adjacencies
+    # via the public CHILmesh ctor flag (CHILmesh #134 / QuADMesh #15).
     sub_conn = domain.connectivity_list[elem_ids]
-    sub_mesh = CHILmesh(sub_conn, domain.points.copy(), compute_layers=False)
-    sub_mesh._build_adjacencies()
+    sub_mesh = CHILmesh(
+        sub_conn,
+        domain.points.copy(),
+        compute_layers=False,
+        compute_adjacencies=True,
+    )
 
     ov_global = np.asarray(layers["OV"][layer_idx], dtype=int)
 
