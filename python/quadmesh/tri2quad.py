@@ -99,6 +99,7 @@ def _match_tris_to_quads(
     prio_arr: Optional[np.ndarray] = None,
     quality_aware: bool = False,
     seed_pairs: Optional[List[Tuple[int, int]]] = None,
+    forbidden_edges: Optional[Set[Tuple[int, int]]] = None,
 ) -> Tuple[List[Tuple[int, int, int, int]], List[int]]:
     """Pair adjacent triangles into quads, saturating interior triangles.
 
@@ -111,6 +112,13 @@ def _match_tris_to_quads(
             (``_layer_priority``: innermost layer first, IE before OE).
             Whatever the priority, the augmenting-path fixup still guarantees
             **zero interior residual triangles**.
+        forbidden_edges: optional set of ``(min, max)`` vertex-pair tuples that
+            must NOT be used as a merge diagonal. These are the layer **flagged
+            edges** (thesis p39: an interior edge whose both endpoints are inner
+            vertices) — the seam where a self-folding layer's two strips border
+            each other. The two triangles sharing such an edge are made
+            non-adjacent here so the matcher never merges across the fold
+            (QuADMesh #31, thesis Figure 4.1).
         seed_pairs: optional list of ``(i, j)`` global tri indices to pre-match
             before the greedy pass. The structured every-other-edge sweep
             (``_sweep_pairs``, thesis ``identifyEdgesFun_v2``) supplies
@@ -135,11 +143,14 @@ def _match_tris_to_quads(
         for e in _tri_edges(tri):
             edge_to_tris.setdefault(e, []).append(i)
     adj: List[Set[int]] = [set() for _ in range(n)]
-    for lst in edge_to_tris.values():
-        if len(lst) == 2:
-            a, b = lst
-            adj[a].add(b)
-            adj[b].add(a)
+    for e, lst in edge_to_tris.items():
+        if len(lst) != 2:
+            continue
+        if forbidden_edges and e in forbidden_edges:
+            continue  # fold-seam (flagged) edge — strips stay invisible (#31)
+        a, b = lst
+        adj[a].add(b)
+        adj[b].add(a)
 
     interior: Set[int] = {
         i for i, tri in enumerate(tris)
@@ -648,8 +659,10 @@ def _layer_priority(domain: CHILmesh, n: int) -> np.ndarray:
     return prio
 
 
-def _sweep_pairs(domain: CHILmesh) -> List[Tuple[int, int]]:
-    """Structured every-other-edge sweep → global tri-index pairs to merge.
+def _sweep_pairs(
+    domain: CHILmesh,
+) -> Tuple[List[Tuple[int, int]], Set[Tuple[int, int]]]:
+    """Structured every-other-edge sweep → (merge pairs, flagged-edge set).
 
     Port driver for thesis ``identifyEdgesFun_v2`` (Ch 4 §4.1): walk each
     skeleton layer **innermost first**, flag every-other interior edge, and emit
@@ -662,14 +675,24 @@ def _sweep_pairs(domain: CHILmesh) -> List[Tuple[int, int]]:
     so the **zero interior residual** guarantee is preserved. The win is shape:
     sweep pairs run along the layer strips, yielding square-ish quads instead of
     the skewed slivers arbitrary greedy adjacency produces.
+
+    The second return value is the set of **flagged edges** (thesis p39 / Figure
+    4.1) as ``(min, max)`` vertex-pair tuples — the fold seams where a layer
+    self-intersects. The matcher forbids merging across these so the two
+    bordering strips are never stitched into one quad (QuADMesh #31).
     """
     from .identify_edges import identify_edges_in_layer
 
     pairs: List[Tuple[int, int]] = []
+    flagged: Set[Tuple[int, int]] = set()
     nl = int(getattr(domain, "n_layers", 0) or 0)
     for li in range(nl - 1, -1, -1):  # innermost layer first
         sel = identify_edges_in_layer(domain, li)
-        if sel.sub_mesh is None or sel.removed_edge_ids.size == 0:
+        if sel.sub_mesh is None:
+            continue
+        for pr in sel.flagged_vert_pairs:
+            flagged.add((int(pr[0]), int(pr[1])))
+        if sel.removed_edge_ids.size == 0:
             continue
         e2e = sel.sub_mesh.adjacencies["Edge2Elem"]
         glob = np.asarray(sel.elem_ids_global, dtype=int)
@@ -681,7 +704,7 @@ def _sweep_pairs(domain: CHILmesh) -> List[Tuple[int, int]]:
             if a >= glob.size or b >= glob.size:
                 continue
             pairs.append((int(glob[a]), int(glob[b])))
-    return pairs
+    return pairs, flagged
 
 
 def tri2quad_routine(
@@ -745,11 +768,11 @@ def tri2quad_routine(
         # (zero interior preserved). Sweep failures (no layers) degrade to pure
         # greedy. NB: quality_aware=True tried but regressed the full pipeline.
         try:
-            seed = _sweep_pairs(domain)
+            seed, forbidden = _sweep_pairs(domain)
         except Exception:
-            seed = None
+            seed, forbidden = None, None
         quads, leftover_idx = _match_tris_to_quads(
-            tris, points, prio, seed_pairs=seed
+            tris, points, prio, seed_pairs=seed, forbidden_edges=forbidden
         )
     elif method == "matching":
         quads, leftover_idx = _match_tris_to_quads(tris, points)
