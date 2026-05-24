@@ -425,6 +425,133 @@ def _edge_swap_tri_pairs(
     return quads_out, tris_out
 
 
+def _ordered_loop(perimeter: List[Tuple[int, int]]) -> Optional[List[int]]:
+    """Walk perimeter edges into an ordered vertex loop. ``None`` if not a cycle."""
+    adj: Dict[int, List[int]] = {}
+    for u, v in perimeter:
+        adj.setdefault(u, []).append(v)
+        adj.setdefault(v, []).append(u)
+    if any(len(a) != 2 for a in adj.values()):
+        return None
+    start = perimeter[0][0]
+    loop = [start]
+    prev, cur = None, start
+    while True:
+        nxts = [w for w in adj[cur] if w != prev]
+        if not nxts:
+            return None
+        nxt = nxts[0]
+        if nxt == start:
+            break
+        loop.append(nxt)
+        prev, cur = cur, nxt
+        if len(loop) > len(perimeter) + 1:
+            return None
+    return loop
+
+
+def _point_insert_tri_pairs(
+    quads: List[Tuple[int, int, int, int]],
+    tris: np.ndarray,
+    points: np.ndarray,
+) -> Tuple[List[Tuple[int, int, int, int]], np.ndarray, np.ndarray]:
+    """Clear lone residual tris by point insertion (thesis edge insertion).
+
+    A lone boundary tri cannot become a single quad without a degenerate
+    (colinear) vertex. Instead, pair it with an edge-adjacent quad: the union is
+    a pentagon, into which a new **interior** point ``p`` (centroid) is inserted,
+    splitting the region into **two quads** ``(v0,v1,v2,p)`` + ``(v2,v3,v4,p)``.
+
+    Adds resolution (one interior point per insertion) and **preserves every
+    original vertex** — boundary verts untouched. Local: only the tri + its
+    neighbour quad change; the pentagon perimeter (shared with other elements) is
+    unchanged → conforming. Each insertion applied only if both quads are valid
+    (``_quad_ok``). Iterates to a fixpoint.
+
+    Returns ``(quads, remaining_tris, points)`` with new interior points appended
+    to ``points``.
+    """
+    pts = points.copy()
+    elems: List[List[int]] = [list(q) for q in quads] + [
+        [int(v) for v in t] for t in np.asarray(tris).reshape(-1, 3)
+    ]
+
+    def ccw(qd: List[int], P: np.ndarray) -> List[int]:
+        p = P[qd]
+        area2 = float(
+            np.sum(p[:, 0] * np.roll(p[:, 1], -1) - np.roll(p[:, 0], -1) * p[:, 1])
+        )
+        return qd if area2 > 0 else qd[::-1]
+
+    changed = True
+    while changed:
+        changed = False
+        edge2elem: Dict[Tuple[int, int], List[int]] = {}
+        for ei, e in enumerate(elems):
+            n = len(e)
+            for i in range(n):
+                edge2elem.setdefault(
+                    tuple(sorted((e[i], e[(i + 1) % n]))), []
+                ).append(ei)
+        consumed: Set[int] = set()
+        new_elems: List[List[int]] = []
+        new_pts: List[np.ndarray] = []
+        for ti, e in enumerate(elems):
+            if ti in consumed or len(set(e)) != 3:
+                continue
+            done = False
+            for i in range(3):
+                edge = tuple(sorted((e[i], e[(i + 1) % 3])))
+                nbrs = [
+                    x
+                    for x in edge2elem[edge]
+                    if x != ti and x not in consumed and len(set(elems[x])) == 4
+                ]
+                if not nbrs:
+                    continue
+                q = nbrs[0]
+                perim: List[Tuple[int, int]] = []
+                cnt: Dict[Tuple[int, int], int] = {}
+                for el in (elems[ti], elems[q]):
+                    n = len(el)
+                    for k in range(n):
+                        ed = tuple(sorted((el[k], el[(k + 1) % n])))
+                        cnt[ed] = cnt.get(ed, 0) + 1
+                perim = [ed for ed, c in cnt.items() if c == 1]
+                loop = _ordered_loop(perim)
+                if loop is None or len(loop) != 5:
+                    continue
+                p_xyz = pts[loop].mean(axis=0)
+                pid = pts.shape[0] + len(new_pts)
+                Pp = np.vstack([pts, *new_pts, p_xyz.reshape(1, -1)]) if new_pts else np.vstack([pts, p_xyz.reshape(1, -1)])
+                placed = False
+                for r in range(5):
+                    L = loop[r:] + loop[:r]
+                    q1 = ccw([L[0], L[1], L[2], pid], Pp)
+                    q2 = ccw([L[2], L[3], L[4], pid], Pp)
+                    if _quad_ok(Pp[q1][:, :2]) and _quad_ok(Pp[q2][:, :2]):
+                        new_pts.append(p_xyz)
+                        new_elems += [q1, q2]
+                        consumed |= {ti, q}
+                        changed = placed = done = True
+                        break
+                if done:
+                    break
+        if changed:
+            if new_pts:
+                pts = np.vstack([pts, *[p.reshape(1, -1) for p in new_pts]])
+            elems = [e for k, e in enumerate(elems) if k not in consumed] + new_elems
+
+    quads_out = [tuple(int(v) for v in e) for e in elems if len(set(e)) == 4]
+    tri_rows = [e for e in elems if len(set(e)) == 3]
+    tris_out = (
+        np.asarray(tri_rows, dtype=int).reshape(-1, 3)
+        if tri_rows
+        else np.empty((0, 3), dtype=int)
+    )
+    return quads_out, tris_out, pts
+
+
 def _layer_priority(domain: CHILmesh, n: int) -> np.ndarray:
     """Per-triangle match priority from the skeleton layers (Ch 4 ordering).
 
@@ -456,6 +583,7 @@ def tri2quad_routine(
     remove_boundary_tris: bool = True,
     method: str = "matching",
     minimize_boundary_change: Optional[bool] = None,
+    point_insert: bool = True,
 ) -> CHILmesh:
     """Convert ``domain`` (triangular) into a quad CHILmesh.
 
@@ -485,6 +613,11 @@ def tri2quad_routine(
             over squeeze (collapse, which moves+deletes them). ``None`` →
             auto: True for ``method="faithful"``, False for ``method="matching"``
             (keeps matching's prior squeeze behaviour + parity baselines).
+        point_insert: faithful path only — clear remaining lone boundary tris by
+            pairing each with a neighbour quad + inserting an interior point →
+            two quads (quad-pure, every original vertex preserved). Default True.
+            Set False to leave them as residual tris (quad-dominant, higher
+            per-element quality; point placement is currently crude/centroid).
 
     Returns:
         A new CHILmesh of quads (quad-pure by default), or quads plus residual
@@ -521,6 +654,14 @@ def tri2quad_routine(
     # vertex (preferred over squeeze; thesis Fig 3.2). Reduces residual tris.
     if surviving_tris.size > 0 and quads:
         quads, surviving_tris = _edge_swap_tri_pairs(quads, surviving_tris, points)
+
+    # Point insertion: clear remaining lone tris by pairing each with a neighbour
+    # quad (pentagon) + an interior point -> 2 quads. Adds resolution, preserves
+    # every original (incl. boundary) vertex. Makes the faithful path quad-pure.
+    if point_insert and method == "faithful" and surviving_tris.size > 0 and quads:
+        quads, surviving_tris, points = _point_insert_tri_pairs(
+            quads, surviving_tris, points
+        )
 
     quads_arr = (
         np.asarray(quads, dtype=int).reshape(-1, 4)
