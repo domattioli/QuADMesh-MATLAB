@@ -100,6 +100,17 @@ Last result this session: `elems=73 tris=7 INTERIOR_tris=7 overlaps=21`.
 
 No new chilmesh issues this session.
 
+## Introspection
+
+Top pains:
+1. `faithful` path leaves interior residual tris — **recurring across ≥4 sessions** (corpus 2026-05-23T20Z, 2026-05-24-bowtie, 2026-05-24T14Z-fold, this). Implementation gap, no skill fixes it.
+2. Async build subagent hit its own session token limit mid-task, left work uncommitted (task `aac1ca64fb90702ea`). Single occurrence.
+3. `faithful_sweep` non-deterministic run-to-run on identical input — suspect dict/layer iteration order.
+
+DomI actions: none. Both feed issues closed — #9 (introspection feed) closed 2026-05-23, #13 (branch policy) closed 2026-05-22. This session's own-branch was operator-directed, not a #13 recurrence. No net-new tooling gap. Corpus: `docs/introspections/2026-05-24T18Z-faithful-sweep-wip.md`. Telemetry on PR #37.
+
+introspection ~4 min, surfaced 5 pain points, 0 DomI writes (both targets closed).
+
 ## Environment / process notes
 
 - Branch policy deviation: work is on `faithful-tri2quad-sweep`, NOT `daily-issue-fixing` (CLAUDE.md default). Explicit user instruction ("put the rebuild on its own branch") overrides the default. Draft PR #37 targets `daily-issue-fixing`.
