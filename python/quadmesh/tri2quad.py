@@ -98,6 +98,7 @@ def _match_tris_to_quads(
     points: np.ndarray,
     prio_arr: Optional[np.ndarray] = None,
     quality_aware: bool = False,
+    seed_pairs: Optional[List[Tuple[int, int]]] = None,
 ) -> Tuple[List[Tuple[int, int, int, int]], List[int]]:
     """Pair adjacent triangles into quads, saturating interior triangles.
 
@@ -109,6 +110,14 @@ def _match_tris_to_quads(
             ``method="faithful"`` path passes a layer-ordered priority
             (``_layer_priority``: innermost layer first, IE before OE).
             Whatever the priority, the augmenting-path fixup still guarantees
+            **zero interior residual triangles**.
+        seed_pairs: optional list of ``(i, j)`` global tri indices to pre-match
+            before the greedy pass. The structured every-other-edge sweep
+            (``_sweep_pairs``, thesis ``identifyEdgesFun_v2``) supplies
+            layer-aligned pairs here so the quads follow the layer strips
+            (square-ish, fewer slivers) instead of arbitrary greedy adjacency.
+            Invalid seeds (already used, or not edge-adjacent) are skipped; the
+            greedy pass + augmenting fixup still cover the residue and guarantee
             **zero interior residual triangles**.
 
     Returns:
@@ -148,6 +157,19 @@ def _match_tris_to_quads(
     def prio(i: int) -> int:
         return int(prio_arr[i])
 
+    # Pre-match the structured-sweep pairs (layer-aligned) before greedy. Only
+    # accept edge-adjacent, currently-free pairs; the rest of the mesh is then
+    # filled greedily and the augmenting fixup guarantees zero interior residue.
+    if seed_pairs:
+        for a, b in seed_pairs:
+            a, b = int(a), int(b)
+            if a in used or b in used or b not in adj[a]:
+                continue
+            matched[a] = b
+            matched[b] = a
+            used.add(a)
+            used.add(b)
+
     def augment(start: int) -> bool:
         """Alternating-path search to match a stranded interior tri by
         rerouting an existing match (frees a boundary residue instead)."""
@@ -181,8 +203,10 @@ def _match_tris_to_quads(
     # Greedy match, interior triangles first, most-constrained (fewest free
     # neighbors) first, via a lazy heap. Near-linear: each match only updates
     # the matched pair's neighbors, avoiding an O(n^2) full rescan per pick.
-    free_deg = [len(adj[i]) for i in range(n)]
-    heap: List[Tuple[int, int, int]] = [(prio(i), free_deg[i], i) for i in range(n)]
+    free_deg = [sum(1 for j in adj[i] if j not in used) for i in range(n)]
+    heap: List[Tuple[int, int, int]] = [
+        (prio(i), free_deg[i], i) for i in range(n) if i not in used
+    ]
     heapq.heapify(heap)
 
     while heap:
@@ -624,6 +648,42 @@ def _layer_priority(domain: CHILmesh, n: int) -> np.ndarray:
     return prio
 
 
+def _sweep_pairs(domain: CHILmesh) -> List[Tuple[int, int]]:
+    """Structured every-other-edge sweep → global tri-index pairs to merge.
+
+    Port driver for thesis ``identifyEdgesFun_v2`` (Ch 4 §4.1): walk each
+    skeleton layer **innermost first**, flag every-other interior edge, and emit
+    the two tris flanking each flagged edge as a pair. Because the per-layer pass
+    marks each element used at most once and elements partition across layers,
+    the emitted pairs are disjoint — safe to seed the matcher with.
+
+    The sweep alone leaves unpaired interior tris (every-other skips some); those
+    are closed by the greedy pass + augmenting fixup in ``_match_tris_to_quads``,
+    so the **zero interior residual** guarantee is preserved. The win is shape:
+    sweep pairs run along the layer strips, yielding square-ish quads instead of
+    the skewed slivers arbitrary greedy adjacency produces.
+    """
+    from .identify_edges import identify_edges_in_layer
+
+    pairs: List[Tuple[int, int]] = []
+    nl = int(getattr(domain, "n_layers", 0) or 0)
+    for li in range(nl - 1, -1, -1):  # innermost layer first
+        sel = identify_edges_in_layer(domain, li)
+        if sel.sub_mesh is None or sel.removed_edge_ids.size == 0:
+            continue
+        e2e = sel.sub_mesh.adjacencies["Edge2Elem"]
+        glob = np.asarray(sel.elem_ids_global, dtype=int)
+        for eid in np.asarray(sel.removed_edge_ids, dtype=int):
+            row = np.asarray(e2e[int(eid)]).ravel()
+            if row.size < 2 or int(row[0]) < 0 or int(row[1]) < 0:
+                continue
+            a, b = int(row[0]), int(row[1])
+            if a >= glob.size or b >= glob.size:
+                continue
+            pairs.append((int(glob[a]), int(glob[b])))
+    return pairs
+
+
 def tri2quad_routine(
     domain: CHILmesh,
     can_remove_edges: bool = True,
@@ -680,9 +740,17 @@ def tri2quad_routine(
 
     if method == "faithful":
         prio = _layer_priority(domain, len(tris))
-        # NB: quality_aware=True tried but regressed the full pipeline (interacts
-        # poorly with the augmenting-path fixup + edge-swap/point-insert stages).
-        quads, leftover_idx = _match_tris_to_quads(tris, points, prio)
+        # Structured every-other-edge sweep proposes layer-aligned pairs; the
+        # matcher seeds on them, then greedy + augmenting fixup close the residue
+        # (zero interior preserved). Sweep failures (no layers) degrade to pure
+        # greedy. NB: quality_aware=True tried but regressed the full pipeline.
+        try:
+            seed = _sweep_pairs(domain)
+        except Exception:
+            seed = None
+        quads, leftover_idx = _match_tris_to_quads(
+            tris, points, prio, seed_pairs=seed
+        )
     elif method == "matching":
         quads, leftover_idx = _match_tris_to_quads(tris, points)
     else:
