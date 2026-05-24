@@ -94,6 +94,17 @@ def post_process_routine(
     mesh = remove_unused_vertices(mesh)
     mesh = two_part_smoother(mesh, n_iter=n_smooth_iter)
 
+    # Smoother moves vertices without bowtie guard; fix any self-intersecting
+    # quads it creates by reordering their vertices (no point added/deleted).
+    from .repair import _fix_bowties
+    import numpy as np
+    _conn = np.asarray(mesh.connectivity_list).copy()
+    _conn_fixed, _n_bt = _fix_bowties(_conn, mesh.points)
+    if _n_bt:
+        mesh = CHILmesh(
+            _conn_fixed, mesh.points, grid_name=getattr(mesh, "grid_name", None)
+        )
+
     if repair:
         from .repair import repair_chilmesh
         mesh = repair_chilmesh(mesh)

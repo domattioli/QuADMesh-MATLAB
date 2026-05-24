@@ -35,6 +35,15 @@ class LayerEdgeSelection:
     boundary_vert_ids_global: np.ndarray  # Boundary verts (parent indexing).
     removed_edge_ids: np.ndarray  # Subdomain edges flagged for removal.
     paths: List[np.ndarray] = field(default_factory=list)  # Outer-vert paths.
+    # Flagged edges (thesis §3.2.2, p39): interior sub-mesh edges whose BOTH
+    # endpoints are inner vertices (IV) of this layer. When a layer folds onto
+    # itself, the seam between its two bordering strips is exactly such an edge;
+    # the two triangles across it must stay "invisible" to each other so the
+    # matcher never merges across the fold (QuADMesh #31, thesis Figure 4.1).
+    flagged_edge_ids: np.ndarray = field(
+        default_factory=lambda: np.empty(0, dtype=int)
+    )  # Sub-mesh edge IDs of flagged (two-IV) interior edges.
+    flagged_vert_pairs: List[tuple] = field(default_factory=list)  # (min,max) parent verts.
 
 
 def identify_edges_in_layer(domain: CHILmesh, layer_idx: int) -> LayerEdgeSelection:
@@ -75,6 +84,29 @@ def identify_edges_in_layer(domain: CHILmesh, layer_idx: int) -> LayerEdgeSelect
     )
 
     ov_global = np.asarray(layers["OV"][layer_idx], dtype=int)
+    iv_global = np.asarray(layers["IV"][layer_idx], dtype=int)
+
+    # Flagged edges (thesis p39): an interior sub-mesh edge whose BOTH endpoints
+    # are inner vertices of this layer. In a layer that does not fold, the inner
+    # ring (IV-IV) edges are sub-mesh BOUNDARY edges; an IV-IV edge shared by two
+    # layer triangles only arises where the layer self-intersects, so it is the
+    # seam between the two bordering strips. Forbidding merges across it keeps the
+    # two strips "invisible" to each other (QuADMesh #31, thesis Figure 4.1).
+    iv_set = set(int(v) for v in iv_global)
+    edge2elem_all = sub_mesh.adjacencies["Edge2Elem"]
+    all_e2v = sub_mesh.edge2vert(np.arange(sub_mesh.n_edges))
+    flagged_mask = np.zeros(sub_mesh.n_edges, dtype=bool)
+    flagged_pairs: List[tuple] = []
+    for eid in range(sub_mesh.n_edges):
+        u, v = int(all_e2v[eid, 0]), int(all_e2v[eid, 1])
+        if u not in iv_set or v not in iv_set:
+            continue
+        pair = edge2elem_all[eid]
+        if int(pair[0]) < 0 or int(pair[1]) < 0:
+            continue  # boundary IV-IV edge (inner ring) — not a fold seam
+        flagged_mask[eid] = True
+        flagged_pairs.append((min(u, v), max(u, v)))
+    flagged_edge_ids = np.where(flagged_mask)[0].astype(int)
 
     # Outer-vertex paths in parent indexing (chilmesh helper already uses parent IDs).
     paths = paths_on_outer_vertices(domain, layer_idx)
@@ -170,6 +202,8 @@ def identify_edges_in_layer(domain: CHILmesh, layer_idx: int) -> LayerEdgeSelect
                 eid_i = int(eid)
                 if edge_used[eid_i] or eid_i in b_edge_set:
                     continue
+                if flagged_mask[eid_i]:
+                    continue  # never merge across a fold seam (QuADMesh #31)
                 pair = edge2elem[eid_i]
                 if pair[0] < 0 or pair[1] < 0:
                     continue
@@ -189,6 +223,8 @@ def identify_edges_in_layer(domain: CHILmesh, layer_idx: int) -> LayerEdgeSelect
         boundary_vert_ids_global=np.unique(b_e2v.ravel()),
         removed_edge_ids=np.asarray(removed, dtype=int),
         paths=rotated_paths,
+        flagged_edge_ids=flagged_edge_ids,
+        flagged_vert_pairs=flagged_pairs,
     )
 
 

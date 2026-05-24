@@ -122,9 +122,9 @@ def test_tri2quad_quad_pure(fixture_name):
 )
 def test_tri2quad_faithful_path(fixture_name):
     """Faithful layer-ordered path: ZERO interior residual tris (the invariant),
-    conforming, bowtie-free. Default is quad-DOMINANT — residual *boundary* tris
-    are emitted to preserve original boundary verts (thesis allows boundary tris);
-    quad-purity is opt-in via minimize_boundary_change=False."""
+    conforming, bowtie-free, and quad-pure (default point_insert clears residual
+    boundary tris by pairing each with a neighbour quad + an interior point,
+    preserving every original vertex)."""
     path = FIXTURE_DIR / fixture_name
     if not path.exists():
         pytest.skip(f"fixture missing: {path}")
@@ -134,6 +134,7 @@ def test_tri2quad_faithful_path(fixture_name):
         f"{fixture_name}: faithful path left interior residual tris — NOT faithful"
     )
     assert _bowtie_count(q) == 0, f"{fixture_name}: faithful path produced bowties"
+    assert _tri_count(q) == 0, f"{fixture_name}: faithful path not quad-pure"
 
 
 @pytest.mark.parametrize("fixture_name", ["Test_Case_1.14", "structuredMesh1.14"])

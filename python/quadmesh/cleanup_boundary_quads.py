@@ -19,6 +19,17 @@ from .remove_unused import remove_unused_vertices
 ANGLE_THRESHOLD_DEG = 134.0
 
 
+def _seg_cross(a, b, c, d) -> bool:
+    """Strict segment intersection (open segments, not endpoints)."""
+    def cr(o, p, q):
+        return (p[0] - o[0]) * (q[1] - o[1]) - (p[1] - o[1]) * (q[0] - o[0])
+    return (cr(c, d, a) > 0) != (cr(c, d, b) > 0) and (cr(a, b, c) > 0) != (cr(a, b, d) > 0)
+
+
+def _is_bowtie(p4: np.ndarray) -> bool:
+    return _seg_cross(p4[0], p4[1], p4[2], p4[3]) or _seg_cross(p4[1], p4[2], p4[3], p4[0])
+
+
 def _angle_deg(p_corner: np.ndarray, p_a: np.ndarray, p_b: np.ndarray) -> float:
     va = np.asarray(p_a, dtype=float) - p_corner
     vb = np.asarray(p_b, dtype=float) - p_corner
@@ -123,10 +134,32 @@ def cleanup_boundary_quads(mesh: CHILmesh, can_remove_edges: bool = True) -> CHI
         # MATLAB subroutineCleanupBoundaryQuads:
         # side1 = verts[(ci-1)%4], side2 = verts[(ci+1)%4] remapped to corner.
         # Corner stays in place. Bad quad deleted.
+        # Each op simulated on neighbors first; skipped if remap would bowtie
+        # any surviving quad (global remap can deform neighbour geometry).
         deleted = np.zeros(mesh.n_elems, dtype=bool)
         for elem_id, corner, opposing, ci, verts, p_prev, p_next in bad:
             side1 = verts[(ci - 1) % 4]
             side2 = verts[(ci + 1) % 4]
+            # Rows affected by the remap (excluding the quad being deleted).
+            mask = (
+                np.any((new_rows == side1) | (new_rows == side2), axis=1) & ~deleted
+            )
+            mask[elem_id] = False
+            ok = True
+            for r_idx in np.where(mask)[0]:
+                sim = new_rows[r_idx].copy()
+                sim[sim == side1] = corner
+                sim[sim == side2] = corner
+                vs = list(dict.fromkeys(int(v) for v in sim))
+                if len(vs) < 4:
+                    ok = False
+                    break
+                p4 = new_pts[np.array(vs[:4], dtype=int), :2]
+                if _is_bowtie(p4):
+                    ok = False
+                    break
+            if not ok:
+                continue  # skip: remap would create bowtie in a neighbour
             new_rows[new_rows == side1] = corner
             new_rows[new_rows == side2] = corner
             deleted[elem_id] = True

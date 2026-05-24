@@ -54,6 +54,33 @@ def _segments_cross(a, b, c, d) -> bool:
     return (d1 > 0) != (d2 > 0) and (d3 > 0) != (d4 > 0)
 
 
+def _quad_quality(p: np.ndarray) -> float:
+    """Min-angle quad shape quality in [0, 1] (1 = square). ``p`` is (4, 2)."""
+    worst = 0.0
+    for i in range(4):
+        a = p[(i - 1) % 4] - p[i]
+        b = p[(i + 1) % 4] - p[i]
+        na, nb = float(np.hypot(*a)), float(np.hypot(*b))
+        if na < 1e-12 or nb < 1e-12:
+            return 0.0
+        cos = float(np.clip(np.dot(a, b) / (na * nb), -1.0, 1.0))
+        worst = max(worst, abs(np.degrees(np.arccos(cos)) - 90.0))
+    return max(0.0, 1.0 - worst / 90.0)
+
+
+def _pair_quad_quality(tris: np.ndarray, P: np.ndarray, i: int, j: int) -> float:
+    """Shape quality of the quad formed by merging adjacent tris ``i`` and ``j``."""
+    si = {int(v) for v in tris[i]}
+    sj = {int(v) for v in tris[j]}
+    sh = si & sj
+    if len(sh) != 2:
+        return 0.0
+    a, b = tuple(sh)
+    o1 = next(int(v) for v in tris[i] if int(v) not in sh)
+    o2 = next(int(v) for v in tris[j] if int(v) not in sh)
+    return _quad_quality(P[[o1, a, o2, b]])
+
+
 def _quad_ok(p: np.ndarray) -> bool:
     """Quad ``p`` (4, 2) is simple (no bowtie), CCW, and non-degenerate."""
     if _segments_cross(p[0], p[1], p[2], p[3]):
@@ -67,7 +94,12 @@ def _quad_ok(p: np.ndarray) -> bool:
 
 
 def _match_tris_to_quads(
-    tris: np.ndarray, points: np.ndarray, prio_arr: Optional[np.ndarray] = None
+    tris: np.ndarray,
+    points: np.ndarray,
+    prio_arr: Optional[np.ndarray] = None,
+    quality_aware: bool = False,
+    seed_pairs: Optional[List[Tuple[int, int]]] = None,
+    forbidden_edges: Optional[Set[Tuple[int, int]]] = None,
 ) -> Tuple[List[Tuple[int, int, int, int]], List[int]]:
     """Pair adjacent triangles into quads, saturating interior triangles.
 
@@ -80,6 +112,21 @@ def _match_tris_to_quads(
             (``_layer_priority``: innermost layer first, IE before OE).
             Whatever the priority, the augmenting-path fixup still guarantees
             **zero interior residual triangles**.
+        forbidden_edges: optional set of ``(min, max)`` vertex-pair tuples that
+            must NOT be used as a merge diagonal. These are the layer **flagged
+            edges** (thesis p39: an interior edge whose both endpoints are inner
+            vertices) — the seam where a self-folding layer's two strips border
+            each other. The two triangles sharing such an edge are made
+            non-adjacent here so the matcher never merges across the fold
+            (QuADMesh #31, thesis Figure 4.1).
+        seed_pairs: optional list of ``(i, j)`` global tri indices to pre-match
+            before the greedy pass. The structured every-other-edge sweep
+            (``_sweep_pairs``, thesis ``identifyEdgesFun_v2``) supplies
+            layer-aligned pairs here so the quads follow the layer strips
+            (square-ish, fewer slivers) instead of arbitrary greedy adjacency.
+            Invalid seeds (already used, or not edge-adjacent) are skipped; the
+            greedy pass + augmenting fixup still cover the residue and guarantee
+            **zero interior residual triangles**.
 
     Returns:
         ``(quads, leftover_idx)`` — list of CCW 4-tuples and the indices of
@@ -88,6 +135,7 @@ def _match_tris_to_quads(
     """
     n = len(tris)
     bset = _boundary_edge_set(tris)
+    P = points[:, :2]
 
     # Triangle adjacency: two tris adjacent iff they share an edge.
     edge_to_tris: Dict[Tuple[int, int], List[int]] = {}
@@ -95,11 +143,14 @@ def _match_tris_to_quads(
         for e in _tri_edges(tri):
             edge_to_tris.setdefault(e, []).append(i)
     adj: List[Set[int]] = [set() for _ in range(n)]
-    for lst in edge_to_tris.values():
-        if len(lst) == 2:
-            a, b = lst
-            adj[a].add(b)
-            adj[b].add(a)
+    for e, lst in edge_to_tris.items():
+        if len(lst) != 2:
+            continue
+        if forbidden_edges and e in forbidden_edges:
+            continue  # fold-seam (flagged) edge — strips stay invisible (#31)
+        a, b = lst
+        adj[a].add(b)
+        adj[b].add(a)
 
     interior: Set[int] = {
         i for i, tri in enumerate(tris)
@@ -116,6 +167,19 @@ def _match_tris_to_quads(
 
     def prio(i: int) -> int:
         return int(prio_arr[i])
+
+    # Pre-match the structured-sweep pairs (layer-aligned) before greedy. Only
+    # accept edge-adjacent, currently-free pairs; the rest of the mesh is then
+    # filled greedily and the augmenting fixup guarantees zero interior residue.
+    if seed_pairs:
+        for a, b in seed_pairs:
+            a, b = int(a), int(b)
+            if a in used or b in used or b not in adj[a]:
+                continue
+            matched[a] = b
+            matched[b] = a
+            used.add(a)
+            used.add(b)
 
     def augment(start: int) -> bool:
         """Alternating-path search to match a stranded interior tri by
@@ -150,8 +214,10 @@ def _match_tris_to_quads(
     # Greedy match, interior triangles first, most-constrained (fewest free
     # neighbors) first, via a lazy heap. Near-linear: each match only updates
     # the matched pair's neighbors, avoiding an O(n^2) full rescan per pick.
-    free_deg = [len(adj[i]) for i in range(n)]
-    heap: List[Tuple[int, int, int]] = [(prio(i), free_deg[i], i) for i in range(n)]
+    free_deg = [sum(1 for j in adj[i] if j not in used) for i in range(n)]
+    heap: List[Tuple[int, int, int]] = [
+        (prio(i), free_deg[i], i) for i in range(n) if i not in used
+    ]
     heapq.heapify(heap)
 
     while heap:
@@ -164,7 +230,12 @@ def _match_tris_to_quads(
         cand = [j for j in adj[i] if j not in used]
         if not cand:
             continue
-        j = min(cand, key=lambda y: (prio(y), free_deg[y]))
+        if quality_aware:
+            # Ch4 T2 refinement: among same-priority partners, pick the one that
+            # forms the best-shaped quad (then most-constrained).
+            j = min(cand, key=lambda y: (prio(y), -_pair_quad_quality(tris, P, i, y), free_deg[y]))
+        else:
+            j = min(cand, key=lambda y: (prio(y), free_deg[y]))
         matched[i] = j
         matched[j] = i
         used.add(i)
@@ -425,6 +496,146 @@ def _edge_swap_tri_pairs(
     return quads_out, tris_out
 
 
+def _ordered_loop(perimeter: List[Tuple[int, int]]) -> Optional[List[int]]:
+    """Walk perimeter edges into an ordered vertex loop. ``None`` if not a cycle."""
+    adj: Dict[int, List[int]] = {}
+    for u, v in perimeter:
+        adj.setdefault(u, []).append(v)
+        adj.setdefault(v, []).append(u)
+    if any(len(a) != 2 for a in adj.values()):
+        return None
+    start = perimeter[0][0]
+    loop = [start]
+    prev, cur = None, start
+    while True:
+        nxts = [w for w in adj[cur] if w != prev]
+        if not nxts:
+            return None
+        nxt = nxts[0]
+        if nxt == start:
+            break
+        loop.append(nxt)
+        prev, cur = cur, nxt
+        if len(loop) > len(perimeter) + 1:
+            return None
+    return loop
+
+
+def _point_insert_tri_pairs(
+    quads: List[Tuple[int, int, int, int]],
+    tris: np.ndarray,
+    points: np.ndarray,
+) -> Tuple[List[Tuple[int, int, int, int]], np.ndarray, np.ndarray]:
+    """Clear lone residual tris by point insertion (thesis edge insertion).
+
+    A lone boundary tri cannot become a single quad without a degenerate
+    (colinear) vertex. Instead, pair it with an edge-adjacent quad: the union is
+    a pentagon, into which a new **interior** point ``p`` (centroid) is inserted,
+    splitting the region into **two quads** ``(v0,v1,v2,p)`` + ``(v2,v3,v4,p)``.
+
+    Adds resolution (one interior point per insertion) and **preserves every
+    original vertex** — boundary verts untouched. Local: only the tri + its
+    neighbour quad change; the pentagon perimeter (shared with other elements) is
+    unchanged → conforming. Each insertion applied only if both quads are valid
+    (``_quad_ok``). Iterates to a fixpoint.
+
+    Returns ``(quads, remaining_tris, points)`` with new interior points appended
+    to ``points``.
+    """
+    pts = points.copy()
+    elems: List[List[int]] = [list(q) for q in quads] + [
+        [int(v) for v in t] for t in np.asarray(tris).reshape(-1, 3)
+    ]
+
+    def ccw(qd: List[int], P: np.ndarray) -> List[int]:
+        p = P[qd]
+        area2 = float(
+            np.sum(p[:, 0] * np.roll(p[:, 1], -1) - np.roll(p[:, 0], -1) * p[:, 1])
+        )
+        return qd if area2 > 0 else qd[::-1]
+
+    changed = True
+    while changed:
+        changed = False
+        edge2elem: Dict[Tuple[int, int], List[int]] = {}
+        for ei, e in enumerate(elems):
+            n = len(e)
+            for i in range(n):
+                edge2elem.setdefault(
+                    tuple(sorted((e[i], e[(i + 1) % n]))), []
+                ).append(ei)
+        consumed: Set[int] = set()
+        new_elems: List[List[int]] = []
+        new_pts: List[np.ndarray] = []
+        for ti, e in enumerate(elems):
+            if ti in consumed or len(set(e)) != 3:
+                continue
+            done = False
+            for i in range(3):
+                edge = tuple(sorted((e[i], e[(i + 1) % 3])))
+                nbrs = [
+                    x
+                    for x in edge2elem[edge]
+                    if x != ti and x not in consumed and len(set(elems[x])) == 4
+                ]
+                if not nbrs:
+                    continue
+                q = nbrs[0]
+                perim: List[Tuple[int, int]] = []
+                cnt: Dict[Tuple[int, int], int] = {}
+                for el in (elems[ti], elems[q]):
+                    n = len(el)
+                    for k in range(n):
+                        ed = tuple(sorted((el[k], el[(k + 1) % n])))
+                        cnt[ed] = cnt.get(ed, 0) + 1
+                perim = [ed for ed, c in cnt.items() if c == 1]
+                loop = _ordered_loop(perim)
+                if loop is None or len(loop) != 5:
+                    continue
+                LP = pts[loop][:, :2]
+                zc = float(pts[loop][:, 2].mean()) if pts.shape[1] > 2 else 0.0
+                # Candidate interior points: centroid + grid over the bbox.
+                cand = [LP.mean(axis=0)]
+                xs = np.linspace(LP[:, 0].min(), LP[:, 0].max(), 6)[1:-1]
+                ys = np.linspace(LP[:, 1].min(), LP[:, 1].max(), 6)[1:-1]
+                cand += [np.array([x, y]) for x in xs for y in ys]
+                pt = pts.shape[0]  # temp id of the candidate point in `tmp`
+                best_q, best = -1.0, None
+                for pxy in cand:
+                    tmp = np.vstack([pts[:, :2], pxy.reshape(1, -1)])
+                    for r in range(5):
+                        L = loop[r:] + loop[:r]
+                        q1 = ccw([L[0], L[1], L[2], pt], tmp)
+                        q2 = ccw([L[2], L[3], L[4], pt], tmp)
+                        if _quad_ok(tmp[q1]) and _quad_ok(tmp[q2]):
+                            mq = min(_quad_quality(tmp[q1]), _quad_quality(tmp[q2]))
+                            if mq > best_q:
+                                best_q, best = mq, (pxy, list(q1), list(q2))
+                if best is None or best_q < 0.1:
+                    continue  # no acceptable placement -> leave tri (rare)
+                pxy, q1l, q2l = best
+                pid = pts.shape[0] + len(new_pts)
+                new_pts.append(np.array([pxy[0], pxy[1], zc]))
+                new_elems.append([pid if v == pt else v for v in q1l])
+                new_elems.append([pid if v == pt else v for v in q2l])
+                consumed |= {ti, q}
+                changed = done = True
+                break
+        if changed:
+            if new_pts:
+                pts = np.vstack([pts, *[p.reshape(1, -1) for p in new_pts]])
+            elems = [e for k, e in enumerate(elems) if k not in consumed] + new_elems
+
+    quads_out = [tuple(int(v) for v in e) for e in elems if len(set(e)) == 4]
+    tri_rows = [e for e in elems if len(set(e)) == 3]
+    tris_out = (
+        np.asarray(tri_rows, dtype=int).reshape(-1, 3)
+        if tri_rows
+        else np.empty((0, 3), dtype=int)
+    )
+    return quads_out, tris_out, pts
+
+
 def _layer_priority(domain: CHILmesh, n: int) -> np.ndarray:
     """Per-triangle match priority from the skeleton layers (Ch 4 ordering).
 
@@ -448,6 +659,54 @@ def _layer_priority(domain: CHILmesh, n: int) -> np.ndarray:
     return prio
 
 
+def _sweep_pairs(
+    domain: CHILmesh,
+) -> Tuple[List[Tuple[int, int]], Set[Tuple[int, int]]]:
+    """Structured every-other-edge sweep → (merge pairs, flagged-edge set).
+
+    Port driver for thesis ``identifyEdgesFun_v2`` (Ch 4 §4.1): walk each
+    skeleton layer **innermost first**, flag every-other interior edge, and emit
+    the two tris flanking each flagged edge as a pair. Because the per-layer pass
+    marks each element used at most once and elements partition across layers,
+    the emitted pairs are disjoint — safe to seed the matcher with.
+
+    The sweep alone leaves unpaired interior tris (every-other skips some); those
+    are closed by the greedy pass + augmenting fixup in ``_match_tris_to_quads``,
+    so the **zero interior residual** guarantee is preserved. The win is shape:
+    sweep pairs run along the layer strips, yielding square-ish quads instead of
+    the skewed slivers arbitrary greedy adjacency produces.
+
+    The second return value is the set of **flagged edges** (thesis p39 / Figure
+    4.1) as ``(min, max)`` vertex-pair tuples — the fold seams where a layer
+    self-intersects. The matcher forbids merging across these so the two
+    bordering strips are never stitched into one quad (QuADMesh #31).
+    """
+    from .identify_edges import identify_edges_in_layer
+
+    pairs: List[Tuple[int, int]] = []
+    flagged: Set[Tuple[int, int]] = set()
+    nl = int(getattr(domain, "n_layers", 0) or 0)
+    for li in range(nl - 1, -1, -1):  # innermost layer first
+        sel = identify_edges_in_layer(domain, li)
+        if sel.sub_mesh is None:
+            continue
+        for pr in sel.flagged_vert_pairs:
+            flagged.add((int(pr[0]), int(pr[1])))
+        if sel.removed_edge_ids.size == 0:
+            continue
+        e2e = sel.sub_mesh.adjacencies["Edge2Elem"]
+        glob = np.asarray(sel.elem_ids_global, dtype=int)
+        for eid in np.asarray(sel.removed_edge_ids, dtype=int):
+            row = np.asarray(e2e[int(eid)]).ravel()
+            if row.size < 2 or int(row[0]) < 0 or int(row[1]) < 0:
+                continue
+            a, b = int(row[0]), int(row[1])
+            if a >= glob.size or b >= glob.size:
+                continue
+            pairs.append((int(glob[a]), int(glob[b])))
+    return pairs, flagged
+
+
 def tri2quad_routine(
     domain: CHILmesh,
     can_remove_edges: bool = True,
@@ -456,6 +715,7 @@ def tri2quad_routine(
     remove_boundary_tris: bool = True,
     method: str = "matching",
     minimize_boundary_change: Optional[bool] = None,
+    point_insert: bool = True,
 ) -> CHILmesh:
     """Convert ``domain`` (triangular) into a quad CHILmesh.
 
@@ -485,6 +745,11 @@ def tri2quad_routine(
             over squeeze (collapse, which moves+deletes them). ``None`` →
             auto: True for ``method="faithful"``, False for ``method="matching"``
             (keeps matching's prior squeeze behaviour + parity baselines).
+        point_insert: faithful path only — clear remaining lone boundary tris by
+            pairing each with a neighbour quad + inserting an interior point →
+            two quads (quad-pure, every original vertex preserved). Default True.
+            Set False to leave them as residual tris (quad-dominant, higher
+            per-element quality; point placement is currently crude/centroid).
 
     Returns:
         A new CHILmesh of quads (quad-pure by default), or quads plus residual
@@ -498,7 +763,17 @@ def tri2quad_routine(
 
     if method == "faithful":
         prio = _layer_priority(domain, len(tris))
-        quads, leftover_idx = _match_tris_to_quads(tris, points, prio)
+        # Structured every-other-edge sweep proposes layer-aligned pairs; the
+        # matcher seeds on them, then greedy + augmenting fixup close the residue
+        # (zero interior preserved). Sweep failures (no layers) degrade to pure
+        # greedy. NB: quality_aware=True tried but regressed the full pipeline.
+        try:
+            seed, forbidden = _sweep_pairs(domain)
+        except Exception:
+            seed, forbidden = None, None
+        quads, leftover_idx = _match_tris_to_quads(
+            tris, points, prio, seed_pairs=seed, forbidden_edges=forbidden
+        )
     elif method == "matching":
         quads, leftover_idx = _match_tris_to_quads(tris, points)
     else:
@@ -521,6 +796,14 @@ def tri2quad_routine(
     # vertex (preferred over squeeze; thesis Fig 3.2). Reduces residual tris.
     if surviving_tris.size > 0 and quads:
         quads, surviving_tris = _edge_swap_tri_pairs(quads, surviving_tris, points)
+
+    # Point insertion: clear remaining lone tris by pairing each with a neighbour
+    # quad (pentagon) + an interior point -> 2 quads. Adds resolution, preserves
+    # every original (incl. boundary) vertex. Makes the faithful path quad-pure.
+    if point_insert and method == "faithful" and surviving_tris.size > 0 and quads:
+        quads, surviving_tris, points = _point_insert_tri_pairs(
+            quads, surviving_tris, points
+        )
 
     quads_arr = (
         np.asarray(quads, dtype=int).reshape(-1, 4)
