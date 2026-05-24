@@ -323,6 +323,78 @@ def _remove_boundary_tris(
     return [tuple(int(v) for v in row) for row in quad_arr], pts, kept
 
 
+def _edge_swap_tri_pairs(
+    quads: List[Tuple[int, int, int, int]],
+    tris: np.ndarray,
+    points: np.ndarray,
+) -> Tuple[List[Tuple[int, int, int, int]], np.ndarray]:
+    """Edge-swap residual tri pairs into quads (thesis Fig 3.2).
+
+    Two residual tris sharing one vertex ``s`` with exactly **one quad between
+    them** (a tri-quad-tri fan ``s,a,b,c,d,e``) are recombined by swapping the
+    two interior edges ``{s-b, s-d}`` for ``{s-c}`` → two quads ``(s,a,b,c)`` and
+    ``(s,c,d,e)``. **No vertex is added, moved, or dropped** — so every boundary
+    vertex is preserved, unlike squeeze. Iterates to a fixpoint. Each candidate
+    swap is applied only if both resulting quads are valid (``_quad_ok``).
+    """
+    P = points[:, :2]
+    elems: List[List[int]] = [list(q) for q in quads] + [
+        [int(v) for v in t] for t in np.asarray(tris).reshape(-1, 3)
+    ]
+
+    def ccw(qd: List[int]) -> List[int]:
+        p = P[qd]
+        area2 = float(
+            np.sum(p[:, 0] * np.roll(p[:, 1], -1) - np.roll(p[:, 0], -1) * p[:, 1])
+        )
+        return qd if area2 > 0 else qd[::-1]
+
+    changed = True
+    while changed:
+        changed = False
+        v2e: Dict[int, Set[int]] = {}
+        for ei, e in enumerate(elems):
+            for v in set(e):
+                v2e.setdefault(v, set()).add(ei)
+        consumed: Set[int] = set()
+        new_elems: List[List[int]] = []
+        for ei, e in enumerate(elems):
+            if ei in consumed or len(set(e)) != 3:
+                continue
+            for s in set(e):
+                fan = [k for k in v2e[s] if k not in consumed]
+                tri_f = [k for k in fan if len(set(elems[k])) == 3]
+                quad_f = [k for k in fan if len(set(elems[k])) == 4]
+                if len(tri_f) != 2 or len(quad_f) != 1 or ei not in tri_f:
+                    continue
+                t2 = tri_f[0] if tri_f[1] == ei else tri_f[1]
+                q = quad_f[0]
+                T1, T2, Q = set(elems[ei]), set(elems[t2]), set(elems[q])
+                b, d = (T1 & Q) - {s}, (T2 & Q) - {s}
+                c = Q - {s} - b - d
+                a, e2 = T1 - {s} - b, T2 - {s} - d
+                if not (len(a) == len(b) == len(c) == len(d) == len(e2) == 1):
+                    continue
+                av, bv, cv, dv, ev = a.pop(), b.pop(), c.pop(), d.pop(), e2.pop()
+                q1, q2 = ccw([s, av, bv, cv]), ccw([s, cv, dv, ev])
+                if _quad_ok(P[q1]) and _quad_ok(P[q2]):
+                    consumed |= {ei, t2, q}
+                    new_elems += [q1, q2]
+                    changed = True
+                    break
+        if changed:
+            elems = [e for i, e in enumerate(elems) if i not in consumed] + new_elems
+
+    quads_out = [tuple(int(v) for v in e) for e in elems if len(set(e)) == 4]
+    tri_rows = [e for e in elems if len(set(e)) == 3]
+    tris_out = (
+        np.asarray(tri_rows, dtype=int).reshape(-1, 3)
+        if tri_rows
+        else np.empty((0, 3), dtype=int)
+    )
+    return quads_out, tris_out
+
+
 def _layer_priority(domain: CHILmesh, n: int) -> np.ndarray:
     """Per-triangle match priority from the skeleton layers (Ch 4 ordering).
 
@@ -413,12 +485,18 @@ def tri2quad_routine(
             quads, leftover_idx, tris, points, bset, can_remove_edges, mbc
         )
 
+    surviving_tris = tris[leftover_idx] if leftover_idx else np.empty((0, 3), dtype=int)
+
+    # Edge-swap residual tri pairs (tri-quad-tri fans) -> quads, preserving every
+    # vertex (preferred over squeeze; thesis Fig 3.2). Reduces residual tris.
+    if surviving_tris.size > 0 and quads:
+        quads, surviving_tris = _edge_swap_tri_pairs(quads, surviving_tris, points)
+
     quads_arr = (
         np.asarray(quads, dtype=int).reshape(-1, 4)
         if quads
         else np.empty((0, 4), dtype=int)
     )
-    surviving_tris = tris[leftover_idx] if leftover_idx else np.empty((0, 3), dtype=int)
 
     if quads_arr.size == 0 and surviving_tris.size == 0:
         raise RuntimeError("tri2quad produced empty mesh")
