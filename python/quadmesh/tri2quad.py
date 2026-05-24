@@ -334,8 +334,14 @@ def _edge_swap_tri_pairs(
     them** (a tri-quad-tri fan ``s,a,b,c,d,e``) are recombined by swapping the
     two interior edges ``{s-b, s-d}`` for ``{s-c}`` → two quads ``(s,a,b,c)`` and
     ``(s,c,d,e)``. **No vertex is added, moved, or dropped** — so every boundary
-    vertex is preserved, unlike squeeze. Iterates to a fixpoint. Each candidate
-    swap is applied only if both resulting quads are valid (``_quad_ok``).
+    vertex is preserved, unlike squeeze. Each candidate swap is applied only if
+    both resulting quads are valid (``_quad_ok``).
+
+    Selection is **most-constrained-first**: each swap consumes its two tris *and*
+    the shared quad, so two candidate swaps that share a quad conflict. Picking
+    the swap whose tris/quad have the fewest alternative candidates first avoids a
+    greedy pick blocking a second feasible swap (e.g. 4 tris around 2 quads → 2
+    swaps, not 1). Iterates to a fixpoint.
     """
     P = points[:, :2]
     elems: List[List[int]] = [list(q) for q in quads] + [
@@ -349,26 +355,28 @@ def _edge_swap_tri_pairs(
         )
         return qd if area2 > 0 else qd[::-1]
 
-    changed = True
-    while changed:
-        changed = False
+    def candidates() -> List[Tuple[int, int, int, List[int], List[int]]]:
         v2e: Dict[int, Set[int]] = {}
         for ei, e in enumerate(elems):
             for v in set(e):
                 v2e.setdefault(v, set()).add(ei)
-        consumed: Set[int] = set()
-        new_elems: List[List[int]] = []
+        out: List[Tuple[int, int, int, List[int], List[int]]] = []
+        seen: Set[Tuple[int, int, int]] = set()
         for ei, e in enumerate(elems):
-            if ei in consumed or len(set(e)) != 3:
+            if len(set(e)) != 3:
                 continue
             for s in set(e):
-                fan = [k for k in v2e[s] if k not in consumed]
+                fan = v2e[s]
                 tri_f = [k for k in fan if len(set(elems[k])) == 3]
                 quad_f = [k for k in fan if len(set(elems[k])) == 4]
                 if len(tri_f) != 2 or len(quad_f) != 1 or ei not in tri_f:
                     continue
                 t2 = tri_f[0] if tri_f[1] == ei else tri_f[1]
                 q = quad_f[0]
+                key = (min(ei, t2), max(ei, t2), q)
+                if key in seen:
+                    continue
+                seen.add(key)
                 T1, T2, Q = set(elems[ei]), set(elems[t2]), set(elems[q])
                 b, d = (T1 & Q) - {s}, (T2 & Q) - {s}
                 c = Q - {s} - b - d
@@ -378,12 +386,34 @@ def _edge_swap_tri_pairs(
                 av, bv, cv, dv, ev = a.pop(), b.pop(), c.pop(), d.pop(), e2.pop()
                 q1, q2 = ccw([s, av, bv, cv]), ccw([s, cv, dv, ev])
                 if _quad_ok(P[q1]) and _quad_ok(P[q2]):
-                    consumed |= {ei, t2, q}
-                    new_elems += [q1, q2]
-                    changed = True
-                    break
+                    out.append((ei, t2, q, q1, q2))
+        return out
+
+    changed = True
+    while changed:
+        changed = False
+        cands = candidates()
+        if not cands:
+            break
+        tri_use: Dict[int, int] = {}
+        quad_use: Dict[int, int] = {}
+        for i, j, q, _, _ in cands:
+            tri_use[i] = tri_use.get(i, 0) + 1
+            tri_use[j] = tri_use.get(j, 0) + 1
+            quad_use[q] = quad_use.get(q, 0) + 1
+        cands.sort(key=lambda c: tri_use[c[0]] + tri_use[c[1]] + quad_use[c[2]])
+        used: Set[int] = set()
+        consumed: Set[int] = set()
+        new_elems: List[List[int]] = []
+        for i, j, q, q1, q2 in cands:
+            if i in used or j in used or q in used:
+                continue
+            used |= {i, j, q}
+            consumed |= {i, j, q}
+            new_elems += [q1, q2]
+            changed = True
         if changed:
-            elems = [e for i, e in enumerate(elems) if i not in consumed] + new_elems
+            elems = [e for k, e in enumerate(elems) if k not in consumed] + new_elems
 
     quads_out = [tuple(int(v) for v in e) for e in elems if len(set(e)) == 4]
     tri_rows = [e for e in elems if len(set(e)) == 3]
