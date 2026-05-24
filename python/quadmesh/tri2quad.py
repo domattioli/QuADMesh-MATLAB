@@ -54,6 +54,33 @@ def _segments_cross(a, b, c, d) -> bool:
     return (d1 > 0) != (d2 > 0) and (d3 > 0) != (d4 > 0)
 
 
+def _quad_quality(p: np.ndarray) -> float:
+    """Min-angle quad shape quality in [0, 1] (1 = square). ``p`` is (4, 2)."""
+    worst = 0.0
+    for i in range(4):
+        a = p[(i - 1) % 4] - p[i]
+        b = p[(i + 1) % 4] - p[i]
+        na, nb = float(np.hypot(*a)), float(np.hypot(*b))
+        if na < 1e-12 or nb < 1e-12:
+            return 0.0
+        cos = float(np.clip(np.dot(a, b) / (na * nb), -1.0, 1.0))
+        worst = max(worst, abs(np.degrees(np.arccos(cos)) - 90.0))
+    return max(0.0, 1.0 - worst / 90.0)
+
+
+def _pair_quad_quality(tris: np.ndarray, P: np.ndarray, i: int, j: int) -> float:
+    """Shape quality of the quad formed by merging adjacent tris ``i`` and ``j``."""
+    si = {int(v) for v in tris[i]}
+    sj = {int(v) for v in tris[j]}
+    sh = si & sj
+    if len(sh) != 2:
+        return 0.0
+    a, b = tuple(sh)
+    o1 = next(int(v) for v in tris[i] if int(v) not in sh)
+    o2 = next(int(v) for v in tris[j] if int(v) not in sh)
+    return _quad_quality(P[[o1, a, o2, b]])
+
+
 def _quad_ok(p: np.ndarray) -> bool:
     """Quad ``p`` (4, 2) is simple (no bowtie), CCW, and non-degenerate."""
     if _segments_cross(p[0], p[1], p[2], p[3]):
@@ -67,7 +94,10 @@ def _quad_ok(p: np.ndarray) -> bool:
 
 
 def _match_tris_to_quads(
-    tris: np.ndarray, points: np.ndarray, prio_arr: Optional[np.ndarray] = None
+    tris: np.ndarray,
+    points: np.ndarray,
+    prio_arr: Optional[np.ndarray] = None,
+    quality_aware: bool = False,
 ) -> Tuple[List[Tuple[int, int, int, int]], List[int]]:
     """Pair adjacent triangles into quads, saturating interior triangles.
 
@@ -88,6 +118,7 @@ def _match_tris_to_quads(
     """
     n = len(tris)
     bset = _boundary_edge_set(tris)
+    P = points[:, :2]
 
     # Triangle adjacency: two tris adjacent iff they share an edge.
     edge_to_tris: Dict[Tuple[int, int], List[int]] = {}
@@ -164,7 +195,12 @@ def _match_tris_to_quads(
         cand = [j for j in adj[i] if j not in used]
         if not cand:
             continue
-        j = min(cand, key=lambda y: (prio(y), free_deg[y]))
+        if quality_aware:
+            # Ch4 T2 refinement: among same-priority partners, pick the one that
+            # forms the best-shaped quad (then most-constrained).
+            j = min(cand, key=lambda y: (prio(y), -_pair_quad_quality(tris, P, i, y), free_deg[y]))
+        else:
+            j = min(cand, key=lambda y: (prio(y), free_deg[y]))
         matched[i] = j
         matched[j] = i
         used.add(i)
@@ -521,22 +557,35 @@ def _point_insert_tri_pairs(
                 loop = _ordered_loop(perim)
                 if loop is None or len(loop) != 5:
                     continue
-                p_xyz = pts[loop].mean(axis=0)
+                LP = pts[loop][:, :2]
+                zc = float(pts[loop][:, 2].mean()) if pts.shape[1] > 2 else 0.0
+                # Candidate interior points: centroid + grid over the bbox.
+                cand = [LP.mean(axis=0)]
+                xs = np.linspace(LP[:, 0].min(), LP[:, 0].max(), 6)[1:-1]
+                ys = np.linspace(LP[:, 1].min(), LP[:, 1].max(), 6)[1:-1]
+                cand += [np.array([x, y]) for x in xs for y in ys]
+                pt = pts.shape[0]  # temp id of the candidate point in `tmp`
+                best_q, best = -1.0, None
+                for pxy in cand:
+                    tmp = np.vstack([pts[:, :2], pxy.reshape(1, -1)])
+                    for r in range(5):
+                        L = loop[r:] + loop[:r]
+                        q1 = ccw([L[0], L[1], L[2], pt], tmp)
+                        q2 = ccw([L[2], L[3], L[4], pt], tmp)
+                        if _quad_ok(tmp[q1]) and _quad_ok(tmp[q2]):
+                            mq = min(_quad_quality(tmp[q1]), _quad_quality(tmp[q2]))
+                            if mq > best_q:
+                                best_q, best = mq, (pxy, list(q1), list(q2))
+                if best is None or best_q < 0.1:
+                    continue  # no acceptable placement -> leave tri (rare)
+                pxy, q1l, q2l = best
                 pid = pts.shape[0] + len(new_pts)
-                Pp = np.vstack([pts, *new_pts, p_xyz.reshape(1, -1)]) if new_pts else np.vstack([pts, p_xyz.reshape(1, -1)])
-                placed = False
-                for r in range(5):
-                    L = loop[r:] + loop[:r]
-                    q1 = ccw([L[0], L[1], L[2], pid], Pp)
-                    q2 = ccw([L[2], L[3], L[4], pid], Pp)
-                    if _quad_ok(Pp[q1][:, :2]) and _quad_ok(Pp[q2][:, :2]):
-                        new_pts.append(p_xyz)
-                        new_elems += [q1, q2]
-                        consumed |= {ti, q}
-                        changed = placed = done = True
-                        break
-                if done:
-                    break
+                new_pts.append(np.array([pxy[0], pxy[1], zc]))
+                new_elems.append([pid if v == pt else v for v in q1l])
+                new_elems.append([pid if v == pt else v for v in q2l])
+                consumed |= {ti, q}
+                changed = done = True
+                break
         if changed:
             if new_pts:
                 pts = np.vstack([pts, *[p.reshape(1, -1) for p in new_pts]])
@@ -631,6 +680,8 @@ def tri2quad_routine(
 
     if method == "faithful":
         prio = _layer_priority(domain, len(tris))
+        # NB: quality_aware=True tried but regressed the full pipeline (interacts
+        # poorly with the augmenting-path fixup + edge-swap/point-insert stages).
         quads, leftover_idx = _match_tris_to_quads(tris, points, prio)
     elif method == "matching":
         quads, leftover_idx = _match_tris_to_quads(tris, points)
