@@ -84,15 +84,18 @@ End-to-end QuADMESH+ run on a smaller annulus (131 tris / 79 verts / 3 layers), 
 
 ![Tri2Quad pipeline on annulus](videos/tri2quad_pipeline_annulus.gif)
 
+The faithful path is **quad-pure** — zero residual triangles in the output.
+
 Higher-fidelity mp4: [`videos/tri2quad_pipeline_annulus.mp4`](videos/tri2quad_pipeline_annulus.mp4). Generator: [`videos/scripts/tri2quad_pipeline_annulus.py`](videos/scripts/tri2quad_pipeline_annulus.py).
 
-Reproduce:
+Reproduce (manim — requires ffmpeg + cairo/pango system libs):
 
 ```
-pip install -e .
-pip install manim scipy
+pip install -e . manim
 manim -qm videos/scripts/tri2quad_pipeline_annulus.py AnnulusPipelineScene
 ```
+
+No-manim fallback (matplotlib only, GIF): `python videos/scripts/render_pipeline_gif.py`
 ## Status & roadmap
 As of May 2026 we are so back.
   - Currently porting the original code to Python

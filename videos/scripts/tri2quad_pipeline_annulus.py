@@ -65,8 +65,10 @@ def compute_stages():
         for e in list(m_tri.Layers["OE"][k]) + list(m_tri.Layers["IE"][k]):
             elem_layer[e] = k
 
-    m_quad = tri2quad(m_tri, can_remove_edges=True)
-    m_post = run_pipeline(m_tri, can_remove_edges=True, n_smooth_iter=12)
+    # Faithful path: layer-ordered sweep + interior saturation -> quad-pure
+    # (zero interior tris, residual boundary tris cleared by point insertion).
+    m_quad = tri2quad(m_tri, method="faithful")
+    m_post = run_pipeline(m_tri, method="faithful", n_smooth_iter=12)
 
     q_pre = m_quad.elem_quality()[0]
     q_post = m_post.elem_quality()[0]
