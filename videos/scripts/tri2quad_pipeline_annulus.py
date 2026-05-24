@@ -221,7 +221,7 @@ class AnnulusPipelineScene(Scene):
         ).to_edge(UP, buff=0.30)
         self.play(Write(caption))
 
-        # Build new polygons at post-process vertex positions and morph.
+        # Build new polygons at post-process vertex positions.
         new_polys = [
             Polygon(
                 *quad_polygon_pts(S["post_pts"], row),
@@ -232,11 +232,12 @@ class AnnulusPipelineScene(Scene):
             )
             for row in S["post_conn"]
         ]
-        anims = [
-            ReplacementTransform(old, new)
-            for old, new in zip(quad_polys, new_polys)
-        ]
-        self.play(*anims, run_time=SMOOTH_DURATION)
+        # Post-process changes the element COUNT (collapse + merge), so a 1:1
+        # ReplacementTransform would strand the surplus raw quads on screen
+        # (they overlap the post mesh). Cross-fade whole groups instead.
+        old_group = VGroup(*quad_polys)
+        new_group = VGroup(*new_polys)
+        self.play(FadeOut(old_group), FadeIn(new_group), run_time=SMOOTH_DURATION)
         self.wait(1.0)
         self.play(FadeOut(caption))
 
