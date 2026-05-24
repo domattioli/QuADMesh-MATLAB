@@ -26,5 +26,5 @@ plot = ["matplotlib>=3.6"]
 quadmesh = "quadmesh.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["src"]
 include = ["quadmesh*"]

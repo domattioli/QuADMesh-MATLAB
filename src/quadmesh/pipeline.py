@@ -21,6 +21,7 @@ def run_pipeline(
     do_post_process: bool = True,
     max_outer_iter: int = 5,
     max_inner_iter: int = 5,
+    method: str = "matching",
 ) -> CHILmesh:
     """Full create_quad_domain → tri2quad → post_process sweep.
 
@@ -32,12 +33,16 @@ def run_pipeline(
         do_post_process: If False, skip post-process (raw tri2quad output).
         max_outer_iter: Outer loop cap in post_process_routine.
         max_inner_iter: Inner loop cap (doublet + QVM) in post_process_routine.
+        method: tri2quad pairing method — ``"matching"`` (default) or
+            ``"faithful"`` (layer-ordered sweep, quad-pure output).
 
     Returns:
         Final quad CHILmesh.
     """
     domain = create_quad_domain(mesh, polygon=polygon)
-    quad = tri2quad_routine(domain, can_remove_edges=can_remove_edges, parent=mesh)
+    quad = tri2quad_routine(
+        domain, can_remove_edges=can_remove_edges, parent=mesh, method=method
+    )
     if do_post_process:
         quad = post_process_routine(
             quad,

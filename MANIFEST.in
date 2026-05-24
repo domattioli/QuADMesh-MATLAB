@@ -1,0 +1,15 @@
+include README.md
+include LICENSE
+
+# Keep the wheel/sdist lean — exclude legacy, archive, demos, planning, and test data.
+prune matlab
+prune archive
+prune videos
+prune specs
+prune docs
+prune tests
+prune scripts
+prune .specify
+prune .github
+
+global-exclude *.mat *.asv .DS_Store

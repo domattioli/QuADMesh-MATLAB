@@ -2,7 +2,7 @@
 
 ## Faithfulness invariant (non-negotiable)
 
-Interior residual triangle (tri with NO domain-boundary edge) after tri2quad = **NOT a faithful QuADMESH+ implementation**. Zero interior tris is mandatory — a properly-implemented QuADMESH+ never leaves one. Only **boundary** tris may remain (thesis minimizes even those; ≤1 typical). Pinned by `python/tests/test_no_interior_tris.py`.
+Interior residual triangle (tri with NO domain-boundary edge) after tri2quad = **NOT a faithful QuADMESH+ implementation**. Zero interior tris is mandatory — a properly-implemented QuADMESH+ never leaves one. Only **boundary** tris may remain (thesis minimizes even those; ≤1 typical). Pinned by `tests/test_no_interior_tris.py`.
 
 Status: `method="matching"` has zero interior tris by construction (faithful on this axis). `method="faithful"` (layer sweep) currently leaves interior tris → it is **WIP, NOT yet faithful**; closing that gap (Ch 4 IE-before-OE + inter-layer matching, faithful-port-tasks T017/T018) is required before it can be called faithful or made default.
 
@@ -18,11 +18,16 @@ New session branches discouraged — work directly on `daily-issue-fixing`, PR �
 
 ## Layout
 
-- `python/` — Python port of QuADMESH+ (lives in this repo per operator decision).
-- `python/MAPPING.md` — MATLAB → Python function map + chilmesh gaps.
-- `specs/001-matlab-to-python-port/` — speckit spec/plan/tasks.
+Conventional src-layout Python package (reorganized 2026-05-24, was numeric-prefix MATLAB-project layout):
+
+- `src/quadmesh/` — Python port of QuADMESH+ (the package; `pip install -e .` from root).
+- `tests/` — pytest suite; `tests/fixtures/meshes/` holds the `.14` test meshes.
+- `docs/MAPPING.md` — MATLAB → Python function map + chilmesh gaps.
 - `docs/sessions/session-NNN.md` — per-session handoff notes.
-- `02_QuADMESH_Library/`, `03_CHILMesh_Test_Cases/`, etc. — original MATLAB source + fixtures.
+- `specs/001-matlab-to-python-port/`, `specs/003-root-reorg/` — speckit spec/plan/tasks.
+- `matlab/` — frozen legacy MATLAB reference (was `02_QuADMESH_Library/`, `04_CHIL_Supporting_Functions/`). Not installable.
+- `archive/` — in-repo holding pen for future removal: MATLAB `@CHILmesh`/ADMESH dups of upstream repos, `.mat` binaries, old results.
+- `videos/` — README demo assets.
 
 ## chilmesh
 
@@ -31,7 +36,8 @@ External Python dep. Issues filed against it for missing/slow APIs: #132 (`merge
 ## Test + run
 
 ```
-cd python && pytest -v        # 35 tests, ~13s
+pip install -e .              # from repo root (src-layout)
+pytest -q                     # 79 tests, ~40s
 python -m quadmesh.cli <input.14> -o <out.14>
 ```
 

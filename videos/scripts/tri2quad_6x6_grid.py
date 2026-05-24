@@ -2,7 +2,7 @@
 Manim illustration of the Tri2Quad layer routine from QuADMesh-MATLAB.
 
 Renders a 6x6-vertex sample domain (50 triangles, three layers) and animates
-the core algorithm from 02_QuADMESH_Library/02_Tri2Quad_Routine/Tri2QuadRoutine.m:
+the core algorithm from matlab/quadmesh/02_Tri2Quad_Routine/Tri2QuadRoutine.m:
 
     For each layer (outward -> inward):
         1. Walk a CCW path along the layer's outer boundary vertices.
