@@ -20,21 +20,27 @@ import pytest
 from quadmesh import compute_quality_stats, post_process, tri2quad
 
 
-# Baselines captured 2026-05-22 with quadmesh 0.3.0 + chilmesh 0.4.1.
-# Keys: input n_elems, output n_elems, quad fraction, mean quality.
-# Source: ``python -m quadmesh.cli`` smoke runs on each fixture.
+# Baselines re-captured 2026-05-23 with quad-pure tri2quad (interior-saturating
+# matching + boundary-tri removal, quadmesh 0.1.0). Keys: input n_elems, output
+# n_elems, quad fraction, mean quality. Source: tri2quad -> post_process(3).
+#
+# Output is now quad-pure (zero residual triangles): leftover boundary tris are
+# squeezed out via edge removal (_remove_boundary_tris), so n_elems_out dropped
+# (TC1 1191->1083, Block_O 2544->2349) and quad_frac is a true 1.000. Mean
+# quality edges down slightly (TC1 0.750->0.739, Block_O 0.748->0.744) because
+# edge removal nudges boundary verts to edge midpoints.
 EXPECTED = {
     "Test_Case_1.14": {
         "n_elems_in": 2417,
-        "n_elems_out": 1394,
+        "n_elems_out": 1083,
         "quad_frac": 1.000,
-        "mean_quality": 0.794,
+        "mean_quality": 0.739,
     },
     "Block_O.14": {
         "n_elems_in": 5214,
-        "n_elems_out": 3918,
+        "n_elems_out": 2349,
         "quad_frac": 1.000,
-        "mean_quality": 0.837,
+        "mean_quality": 0.744,
     },
 }
 

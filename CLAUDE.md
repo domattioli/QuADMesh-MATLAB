@@ -1,5 +1,11 @@
 # CLAUDE.md
 
+## Faithfulness invariant (non-negotiable)
+
+Interior residual triangle (tri with NO domain-boundary edge) after tri2quad = **NOT a faithful QuADMESH+ implementation**. Zero interior tris is mandatory — a properly-implemented QuADMESH+ never leaves one. Only **boundary** tris may remain (thesis minimizes even those; ≤1 typical). Pinned by `python/tests/test_no_interior_tris.py`.
+
+Status: `method="matching"` has zero interior tris by construction (faithful on this axis). `method="faithful"` (layer sweep) currently leaves interior tris → it is **WIP, NOT yet faithful**; closing that gap (Ch 4 IE-before-OE + inter-layer matching, faithful-port-tasks T017/T018) is required before it can be called faithful or made default.
+
 ## Routine
 
 Routine lives in `DomI/claude_routine_instructions.md` (private). Textbox payload format + per-repo profile knobs in §6–§7 there. Do not duplicate routine prose here.
