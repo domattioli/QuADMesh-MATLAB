@@ -19,7 +19,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License"></a>
 </p>
 
-> **Attention MATLAB users:** This Python library is the actively-developed successor to the original MATLAB codebase. That original code (no longer maintained) is at [02_QuADMESH_Library](https://github.com/domattioli/QuADMESH/tree/main/02_QuADMESH_Library). Version 1.0.0 will come with a MATLAB wrapper of the modernized code (Est. Aug 2026).
+> **Attention MATLAB users:** This Python library is the actively-developed successor to the original MATLAB codebase. That original code (no longer maintained) is frozen under [`matlab/quadmesh`](https://github.com/domattioli/QuADMESH/tree/main/matlab/quadmesh). Version 1.0.0 will come with a MATLAB wrapper of the modernized code (Est. Aug 2026).
 
 ---
 
@@ -39,11 +39,40 @@
 
 ---
 
+## Install
+
+```bash
+pip install -e .            # from the repo root (src-layout)
+pip install -e ".[dev]"     # + pytest for the test suite
+pip install -e ".[plot]"    # + matplotlib for quality plots
+```
+
+```bash
+pytest -q                          # 79 tests
+python -m quadmesh.cli in.14 -o out.14
+```
+
+## Repository layout
+
+```
+src/quadmesh/   Python package (the maintained implementation)
+tests/          pytest suite; tests/fixtures/meshes/ holds .14 test meshes
+docs/           MAPPING.md (MATLAB→Python), session notes
+specs/          speckit specs/plans/tasks
+videos/         demo assets used in this README
+matlab/         frozen legacy MATLAB reference (not installable)
+archive/        in-repo holding pen for future removal (upstream dups, .mat binaries)
+```
+
+`chilmesh` functionality is **not vendored** — it is an external dependency
+(`chilmesh>=0.4.0`). The old MATLAB `@CHILmesh` class lives under `archive/` only
+for historical reference; see [CHILmesh](https://github.com/domattioli/CHILmesh).
+
 ## Python port of MATLAB Functionality -- Coming very soon (est. June 2026)
 
 ## Tri2Quad
 
-Step-by-step illustration of the Tri2Quad layer routine on a 6×6 vertex grid (50 triangles, three layers). Processes innermost layer first per MATLAB's `for iLayer = Domain.nLayers:-1:1` loop in `02_QuADMESH_Library/02_Tri2Quad_Routine/Tri2QuadRoutine.m`: walk CCW boundary path, flag every-other interior edge via element-flagging, merge each triangle pair into a quad.
+Step-by-step illustration of the Tri2Quad layer routine on a 6×6 vertex grid (50 triangles, three layers). Processes innermost layer first per MATLAB's `for iLayer = Domain.nLayers:-1:1` loop in `matlab/quadmesh/02_Tri2Quad_Routine/Tri2QuadRoutine.m`: walk CCW boundary path, flag every-other interior edge via element-flagging, merge each triangle pair into a quad.
 
 ![Tri2Quad on 6x6 grid](videos/tri2quad_6x6_grid.gif)
 
@@ -51,7 +80,7 @@ Higher-fidelity mp4: [`videos/tri2quad_6x6_grid.mp4`](videos/tri2quad_6x6_grid.m
 
 ## Demo
 
-End-to-end QuADMESH+ run on a smaller annulus (131 tris / 79 verts / 3 layers), showing the algorithmic stages from `python/quadmesh/pipeline.py`: triangulated input → layer decomposition → `tri2quad_routine` → `post_process_routine` (doublet collapse, quad-vertex merge, angle + FEM smoothing).
+End-to-end QuADMESH+ run on a smaller annulus (131 tris / 79 verts / 3 layers), showing the algorithmic stages from `src/quadmesh/pipeline.py`: triangulated input → layer decomposition → `tri2quad_routine` → `post_process_routine` (doublet collapse, quad-vertex merge, angle + FEM smoothing).
 
 ![Tri2Quad pipeline on annulus](videos/tri2quad_pipeline_annulus.gif)
 
@@ -60,7 +89,7 @@ Higher-fidelity mp4: [`videos/tri2quad_pipeline_annulus.mp4`](videos/tri2quad_pi
 Reproduce:
 
 ```
-pip install -e python
+pip install -e .
 pip install manim scipy
 manim -qm videos/scripts/tri2quad_pipeline_annulus.py AnnulusPipelineScene
 ```

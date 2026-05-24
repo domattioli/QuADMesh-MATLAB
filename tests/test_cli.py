@@ -10,8 +10,7 @@ import pytest
 
 from chilmesh import CHILmesh
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-FIXTURE_DIR = REPO_ROOT / "03_CHILMesh_Test_Cases" / "01_.14_Files"
+FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "meshes"
 
 
 def test_cli_runs(tmp_path):

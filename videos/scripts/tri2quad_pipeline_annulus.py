@@ -9,8 +9,8 @@ Stages animated:
        quad-vertex merge, angle-based smoother, and FEM smoother).
     5. Quality summary.
 
-Mirrors the end-to-end driver in `python/quadmesh/pipeline.py` which is the
-Python port of QuADMESH-MATLAB's `02_QuADMESH_Library/00_Main/Main.m`.
+Mirrors the end-to-end driver in `src/quadmesh/pipeline.py` which is the
+Python port of QuADMESH-MATLAB's `matlab/quadmesh/00_Main/Main.m`.
 
 Render:
     manim -ql --disable_caching videos/scripts/tri2quad_pipeline_annulus.py AnnulusPipelineScene
