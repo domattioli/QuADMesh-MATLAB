@@ -772,11 +772,38 @@ def _faithful_per_layer(
         if sel.sub_mesh is None:
             continue
 
-        e2e = sel.sub_mesh.adjacencies["Edge2Elem"]
+        from ._match_faithful import match_layer_heuristic
+
         glob = np.asarray(sel.elem_ids_global, dtype=int)
         local_consumed: Set[int] = set()
 
-        # Merge flagged edge pairs → quads (mergeTrianglesFun).
+        # Build flagged (fold-seam) pairs in global IDs.
+        flagged_global: Set[frozenset] = set()
+        for fp in sel.flagged_vert_pairs:
+            # fp is a (min, max) vertex-pair; find which global elems share it.
+            pass  # fold-seam flagging via flagged_vert_pairs will be wired in T018
+
+        # T017: IE-before-OE + T1/T2 heuristic pairing.
+        ie_ids = np.asarray(layers["IE"][li], dtype=int)
+        oe_ids = np.asarray(layers["OE"][li], dtype=int)
+        layer_conn = domain.connectivity_list[glob]
+        heuristic_pairs, heuristic_consumed = match_layer_heuristic(
+            layer_conn=layer_conn,
+            layer_global_ids=glob,
+            ie_global_ids=ie_ids,
+            oe_global_ids=oe_ids,
+            pts=domain.points,
+            flagged_pairs=flagged_global,
+            already_consumed=consumed,
+            use_t2_ladder=True,
+        )
+
+        # Merge flagged edge pairs → quads (mergeTrianglesFun): honour
+        # identify_edges selection *filtered* by heuristic to avoid double-merge.
+        e2e = sel.sub_mesh.adjacencies["Edge2Elem"]
+        heuristic_local_pairs: Set[frozenset] = set(
+            frozenset([la, lb]) for la, lb in heuristic_pairs
+        )
         for eid in sel.removed_edge_ids:
             row = np.asarray(e2e[int(eid)]).ravel()
             if row.size < 2 or int(row[0]) < 0 or int(row[1]) < 0:
@@ -789,6 +816,13 @@ def _faithful_per_layer(
                 continue
             if la in local_consumed or lb in local_consumed:
                 continue
+            # Only merge if heuristic also selected this pair (or heuristic found
+            # nothing for these elems, in which case fall back to identify_edges).
+            pair_key = frozenset([la, lb])
+            if heuristic_local_pairs and pair_key not in heuristic_local_pairs:
+                # Heuristic has already assigned one of these to a different partner.
+                if ga in heuristic_consumed or gb in heuristic_consumed:
+                    continue
             try:
                 quad = merge_tri_pair(sel.sub_mesh, la, lb)
             except (ValueError, IndexError):
