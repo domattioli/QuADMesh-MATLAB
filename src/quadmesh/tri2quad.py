@@ -595,22 +595,47 @@ def _point_insert_tri_pairs(
                 LP = pts[loop][:, :2]
                 zc = float(pts[loop][:, 2].mean()) if pts.shape[1] > 2 else 0.0
                 # Candidate interior points: centroid + grid over the bbox.
-                cand = [LP.mean(axis=0)]
+                centroid = LP.mean(axis=0)
+                std_cand = [centroid]
                 xs = np.linspace(LP[:, 0].min(), LP[:, 0].max(), 6)[1:-1]
                 ys = np.linspace(LP[:, 1].min(), LP[:, 1].max(), 6)[1:-1]
-                cand += [np.array([x, y]) for x in xs for y in ys]
+                std_cand += [np.array([x, y]) for x in xs for y in ys]
+                # Concave-pentagon fallback (WNAT bays): centroid+grid all land
+                # outside a concave loop. Diagonal midpoints + inward-normal offsets
+                # reach into non-convex regions. Tried ONLY when the standard set
+                # finds nothing, and held to a higher quality floor so a marginal
+                # insertion never replaces a better-left residual tri.
+                diag = float(np.linalg.norm(LP.max(axis=0) - LP.min(axis=0)))
+                fb_cand = [0.5 * (LP[i] + LP[(i + 2) % 5]) for i in range(5)]
+                for i in range(5):
+                    edge_mid = 0.5 * (LP[i] + LP[(i + 1) % 5])
+                    inward = centroid - edge_mid
+                    nrm = float(np.linalg.norm(inward))
+                    if nrm < 1e-12:
+                        continue
+                    inward /= nrm
+                    fb_cand += [edge_mid + t * diag * inward for t in (0.1, 0.2, 0.3, 0.4)]
                 pt = pts.shape[0]  # temp id of the candidate point in `tmp`
-                best_q, best = -1.0, None
-                for pxy in cand:
-                    tmp = np.vstack([pts[:, :2], pxy.reshape(1, -1)])
-                    for r in range(5):
-                        L = loop[r:] + loop[:r]
-                        q1 = ccw([L[0], L[1], L[2], pt], tmp)
-                        q2 = ccw([L[2], L[3], L[4], pt], tmp)
-                        if _quad_ok(tmp[q1]) and _quad_ok(tmp[q2]):
-                            mq = min(_quad_quality(tmp[q1]), _quad_quality(tmp[q2]))
-                            if mq > best_q:
-                                best_q, best = mq, (pxy, list(q1), list(q2))
+
+                def _scan(cands):
+                    bq, bsel = -1.0, None
+                    for pxy in cands:
+                        tmp = np.vstack([pts[:, :2], pxy.reshape(1, -1)])
+                        for r in range(5):
+                            L = loop[r:] + loop[:r]
+                            q1 = ccw([L[0], L[1], L[2], pt], tmp)
+                            q2 = ccw([L[2], L[3], L[4], pt], tmp)
+                            if _quad_ok(tmp[q1]) and _quad_ok(tmp[q2]):
+                                mq = min(_quad_quality(tmp[q1]), _quad_quality(tmp[q2]))
+                                if mq > bq:
+                                    bq, bsel = mq, (pxy, list(q1), list(q2))
+                    return bq, bsel
+
+                best_q, best = _scan(std_cand)
+                if (best is None or best_q < 0.1):
+                    fb_q, fb = _scan(fb_cand)
+                    if fb is not None and fb_q >= 0.3:
+                        best_q, best = fb_q, fb
                 if best is None or best_q < 0.1:
                     continue  # no acceptable placement -> leave tri (rare)
                 pxy, q1l, q2l = best

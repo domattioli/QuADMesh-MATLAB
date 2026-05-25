@@ -1,8 +1,10 @@
 """Identify interior edges to remove in a layer, merging tri pairs to quads.
 
 Port of MATLAB ``identifyEdgesFun_v2``. Walks each layer's outer-vertex path
-and flags every-other interior edge for removal so the two tris sharing it
-can be merged into a quad.
+and flags interior edges for removal so the two tris sharing each flagged edge
+can be merged into a quad. At each path vertex, all interior edges between the
+up- and down-path boundary edges are taken; elem/edge flagging prevents any
+triangle from being merged twice.
 
 Outputs go to the caller (typically the tri2quad sweep), which then performs
 the merges and routes remaining tris through edge-insertion/bisection/removal.
@@ -55,7 +57,7 @@ def identify_edges_in_layer(domain: CHILmesh, layer_idx: int) -> LayerEdgeSelect
         3. Filter boundary edges of sub-mesh to outer ring (both endpoints in OV).
         4. Rotate each path to start at a "corner" (vert with only one elem).
         5. Walk each path; at each vert, sort incident edges from up-path to
-           down-path and flag every other interior edge for removal — skipping
+           down-path and flag all interior edges for removal — skipping
            already-flagged edges or elems whose neighbour was already merged.
     """
     layers = domain.layers
@@ -113,6 +115,8 @@ def identify_edges_in_layer(domain: CHILmesh, layer_idx: int) -> LayerEdgeSelect
 
     # Rotate each path so it starts at a vertex with only one layer-element attached
     # (an outer corner), matching the MATLAB heuristic.
+    # Pre-build the layer elem-set once: per-vertex set() recreation is O(|OV|*|layer|).
+    elem_id_set = set(int(e) for e in elem_ids)
     rotated_paths: List[np.ndarray] = []
     for path in paths:
         verts = np.asarray(path, dtype=int)
@@ -124,7 +128,7 @@ def identify_edges_in_layer(domain: CHILmesh, layer_idx: int) -> LayerEdgeSelect
             verts = verts[:-1]
         # Count layer-elems incident to each vert.
         counts = np.array(
-            [len(set(domain.get_vertex_elements(int(v))) & set(elem_ids.tolist()))
+            [sum(1 for e in domain.get_vertex_elements(int(v)) if int(e) in elem_id_set)
              for v in verts],
             dtype=int,
         )
@@ -192,13 +196,17 @@ def identify_edges_in_layer(domain: CHILmesh, layer_idx: int) -> LayerEdgeSelect
             if idown <= 1:
                 up_edge = down_edge
                 continue
-            # Interior edges between up and down (exclusive).
+            # MATLAB idownEdgeID==2 reversal (identifyEdgesFun_v2.m:86-88): when a
+            # single interior edge sits between up and down, flip positions [1:] so
+            # it lands at the first take position consistently.
+            if idown == 2:
+                ordered = np.concatenate([ordered[:1], ordered[1:][::-1]])
+                idown = int(np.where(ordered == down_edge)[0][0])
+            # Interior edges between up and down (exclusive). Take ALL of them
+            # (identifyEdgesFun_v2.m:108-121, `for iEdge=2:totalNumEdges-1`); the
+            # elem/edge flagging below prevents double-merge, so no every-other skip.
             interior = ordered[1:idown]
-            # Every other one, starting at index 0 of interior — matches the
-            # MATLAB "skip up, take, skip, take..." pattern.
-            for j, eid in enumerate(interior):
-                if j % 2 == 1:
-                    continue
+            for eid in interior:
                 eid_i = int(eid)
                 if edge_used[eid_i] or eid_i in b_edge_set:
                     continue
