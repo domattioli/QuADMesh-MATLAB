@@ -88,15 +88,21 @@ def edge_bisection(domain: CHILmesh, work: WorkingMesh, tri_elem_id: int,
 
     # Build new quad: rotate tri conn so v_a, v_b are adjacent, then insert np_id between.
     conn = domain.connectivity_list[tri_elem_id, :3].astype(int)
-    # Find positions of (v_a, v_b) in conn.
-    while True:
+    # Find positions of (v_a, v_b) in conn. Cap at 3 rolls (one full cycle); if the
+    # edge appears reversed (ib → ia CCW) swap v_a/v_b so the insertion is consistent.
+    for _ in range(3):
         ia = np.where(conn == v_a)[0]
         ib = np.where(conn == v_b)[0]
         if ia.size == 0 or ib.size == 0:
             return None
         if (ia[0] + 1) % 3 == ib[0]:
             break
+        if (ib[0] + 1) % 3 == ia[0]:
+            v_a, v_b = v_b, v_a  # edge is CCW as v_b→v_a; swap to match convention
+            break
         conn = np.roll(conn, -1)
+    else:
+        return None  # degenerate — v_a or v_b not adjacent in this tri
     # quad = [conn[0], conn[1], np_id, conn[2]]? Not quite. MATLAB inserts
     # np_id between v_a and v_b: [..., v_a, np_id, v_b, ...].
     # Build by walking conn and slotting np_id in between the v_a,v_b pair.

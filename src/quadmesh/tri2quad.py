@@ -732,6 +732,129 @@ def _sweep_pairs(
     return pairs, flagged
 
 
+def _faithful_per_layer(
+    domain: CHILmesh,
+    tris: np.ndarray,
+    can_remove_edges: bool,
+) -> Tuple[List[Tuple[int, int, int, int]], List[int], np.ndarray]:
+    """True MATLAB Tri2QuadRoutine per-layer loop.
+
+    Mirrors ``Tri2QuadRoutine.m``: innermost layer first, per-layer
+    identifyEdges → mergeTriangles → removeTriangles, then a fallback global
+    matcher for any elements not covered by the skeleton layers.
+
+    Returns ``(quads, leftover_global_idx, points)`` where ``leftover_global_idx``
+    indexes into the original ``tris`` array for tris not handled by the
+    per-layer sweep, and ``points`` is the (possibly augmented) vertex table.
+    """
+    from ._tri_removal import WorkingMesh, route_leftover_tri
+    from ._topology import merge_tri_pair
+    from .identify_edges import identify_edges_in_layer
+
+    work = WorkingMesh(points=domain.points.copy(), quads=[])
+    consumed: Set[int] = set()  # global elem IDs already merged or routed
+
+    nl = int(getattr(domain, "n_layers", 0) or 0)
+    layers = domain.layers
+
+    # All elem IDs that belong to at least one layer — the rest fall through to
+    # the global matcher below.
+    all_layer_elems: Set[int] = set()
+    for li in range(nl):
+        all_layer_elems.update(int(e) for e in layers["OE"][li])
+        all_layer_elems.update(int(e) for e in layers["IE"][li])
+
+    for li in range(nl - 1, -1, -1):  # MATLAB: nLayers downto 1 (innermost first)
+        try:
+            sel = identify_edges_in_layer(domain, li)
+        except Exception:
+            continue
+        if sel.sub_mesh is None:
+            continue
+
+        e2e = sel.sub_mesh.adjacencies["Edge2Elem"]
+        glob = np.asarray(sel.elem_ids_global, dtype=int)
+        local_consumed: Set[int] = set()
+
+        # Merge flagged edge pairs → quads (mergeTrianglesFun).
+        for eid in sel.removed_edge_ids:
+            row = np.asarray(e2e[int(eid)]).ravel()
+            if row.size < 2 or int(row[0]) < 0 or int(row[1]) < 0:
+                continue
+            la, lb = int(row[0]), int(row[1])
+            if la >= glob.size or lb >= glob.size:
+                continue
+            ga, gb = int(glob[la]), int(glob[lb])
+            if ga in consumed or gb in consumed:
+                continue
+            if la in local_consumed or lb in local_consumed:
+                continue
+            try:
+                quad = merge_tri_pair(sel.sub_mesh, la, lb)
+            except (ValueError, IndexError):
+                continue
+            work.add_quad(quad)
+            consumed.add(ga)
+            consumed.add(gb)
+            local_consumed.add(la)
+            local_consumed.add(lb)
+
+        # Route leftover (unmatched) tris (removeTrianglesFun).
+        # Outermost layer = mesh boundary layer (MATLAB: iLayer == nLayers).
+        on_mesh_boundary = (li == nl - 1)
+        b_edge_set = set(int(e) for e in sel.boundary_edge_ids)
+        b_vert_set = set(int(v) for v in sel.boundary_vert_ids_global)
+
+        for gid in glob:
+            gid_i = int(gid)
+            if gid_i in consumed:
+                continue
+            try:
+                route_leftover_tri(
+                    domain, work, gid_i, li,
+                    on_mesh_boundary=on_mesh_boundary,
+                    can_remove_edges=can_remove_edges,
+                    sub_b_edge_set=b_edge_set,
+                    sub_b_vert_set=b_vert_set,
+                )
+            except Exception:
+                pass  # degenerate — tri collected in leftover_idx below
+            consumed.add(gid_i)
+
+    # Global matcher fallback for any elems not covered by skeleton layers.
+    unclaimed_idx = [
+        i for i in range(len(tris))
+        if i not in consumed
+        and i not in all_layer_elems
+        and len(set(tris[i].tolist())) == 3  # skip zero/degenerate rows
+    ]
+    if unclaimed_idx:
+        unclaimed_tris = tris[unclaimed_idx]
+        unc_quads, unc_left_local = _match_tris_to_quads(
+            unclaimed_tris, domain.points
+        )
+        for q in unc_quads:
+            work.add_quad(np.asarray(q, dtype=int))
+        unc_left_set = set(unc_left_local)
+        consumed.update(
+            unclaimed_idx[j]
+            for j in range(len(unclaimed_idx))
+            if j not in unc_left_set
+        )
+
+    # Remaining tris: in consumed set but zero-row means consumed-in-place (fine).
+    # Not in consumed = genuinely unhandled, pass to downstream cleanup.
+    leftover_idx = [
+        i for i in range(len(tris))
+        if i not in consumed and len(set(tris[i].tolist())) == 3
+    ]
+
+    # Sync points — route ops may have augmented domain.points via bisection/insertion.
+    points_out = domain.points.copy()
+
+    return [tuple(int(v) for v in q) for q in work.quads], leftover_idx, points_out
+
+
 def tri2quad_routine(
     domain: CHILmesh,
     can_remove_edges: bool = True,
@@ -787,18 +910,24 @@ def tri2quad_routine(
     tris = np.asarray(domain.connectivity_list)[:, :3].astype(int)
 
     if method == "faithful":
-        prio = _layer_priority(domain, len(tris))
-        # Structured every-other-edge sweep proposes layer-aligned pairs; the
-        # matcher seeds on them, then greedy + augmenting fixup close the residue
-        # (zero interior preserved). Sweep failures (no layers) degrade to pure
-        # greedy. NB: quality_aware=True tried but regressed the full pipeline.
-        try:
-            seed, forbidden = _sweep_pairs(domain)
-        except Exception:
-            seed, forbidden = None, None
-        quads, leftover_idx = _match_tris_to_quads(
-            tris, points, prio, seed_pairs=seed, forbidden_edges=forbidden
-        )
+        nl_check = int(getattr(domain, "n_layers", 0) or 0)
+        if nl_check > 0:
+            # True per-layer loop: identifyEdges → mergePairs → routeLeftovers per layer
+            # (mirrors Tri2QuadRoutine.m).  domain.points may be augmented in-place by
+            # route ops; points is re-synced from domain after the sweep.
+            quads, leftover_idx, points = _faithful_per_layer(
+                domain, tris, can_remove_edges
+            )
+        else:
+            # No skeleton layers (e.g. mesh too coarse) — degrade gracefully.
+            prio = _layer_priority(domain, len(tris))
+            try:
+                seed, forbidden = _sweep_pairs(domain)
+            except Exception:
+                seed, forbidden = None, None
+            quads, leftover_idx = _match_tris_to_quads(
+                tris, points, prio, seed_pairs=seed, forbidden_edges=forbidden
+            )
     elif method == "matching":
         quads, leftover_idx = _match_tris_to_quads(tris, points)
     else:
