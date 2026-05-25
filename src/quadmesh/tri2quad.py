@@ -358,8 +358,13 @@ def _remove_boundary_tris(
             # quad-dominant (boundary tris allowed by the thesis), not quad-pure.
             kept.append(ti)
             continue
-        if len(bdy) != 1 or not can_remove_edges:
-            continue  # drop n_bdy>=2 (boundary truncation)
+        if len(bdy) >= 2:
+            continue  # drop (boundary truncation, n_bdy>=2)
+        # T024 (CR-4): prefer drop (T3) over squeeze (T4); squeeze only when
+        # can_remove_edges=True AND the squeeze is valid. Edge-insertion path
+        # (T2) is handled upstream by route_leftover_tri in faithful sweep.
+        if not can_remove_edges:
+            continue  # drop — no squeeze allowed
         va, vb = (find(bdy[0][0]), find(bdy[0][1]))
         if va == vb:
             continue
@@ -772,8 +777,7 @@ def _faithful_per_layer(
         if sel.sub_mesh is None:
             continue
 
-        from ._match_faithful import match_layer_heuristic
-
+        e2e = sel.sub_mesh.adjacencies["Edge2Elem"]
         glob = np.asarray(sel.elem_ids_global, dtype=int)
         local_consumed: Set[int] = set()
 
@@ -783,27 +787,10 @@ def _faithful_per_layer(
             # fp is a (min, max) vertex-pair; find which global elems share it.
             pass  # fold-seam flagging via flagged_vert_pairs will be wired in T018
 
-        # T017: IE-before-OE + T1/T2 heuristic pairing.
-        ie_ids = np.asarray(layers["IE"][li], dtype=int)
-        oe_ids = np.asarray(layers["OE"][li], dtype=int)
-        layer_conn = domain.connectivity_list[glob]
-        heuristic_pairs, heuristic_consumed = match_layer_heuristic(
-            layer_conn=layer_conn,
-            layer_global_ids=glob,
-            ie_global_ids=ie_ids,
-            oe_global_ids=oe_ids,
-            pts=domain.points,
-            flagged_pairs=flagged_global,
-            already_consumed=consumed,
-            use_t2_ladder=True,
-        )
-
-        # Merge flagged edge pairs → quads (mergeTrianglesFun): honour
-        # identify_edges selection *filtered* by heuristic to avoid double-merge.
+        # Merge flagged edge pairs → quads (mergeTrianglesFun).
+        # identify_edges_in_layer output is the primary authority; T017 heuristic
+        # ordering is applied at the per-layer routing level, not as a gate here.
         e2e = sel.sub_mesh.adjacencies["Edge2Elem"]
-        heuristic_local_pairs: Set[frozenset] = set(
-            frozenset([la, lb]) for la, lb in heuristic_pairs
-        )
         for eid in sel.removed_edge_ids:
             row = np.asarray(e2e[int(eid)]).ravel()
             if row.size < 2 or int(row[0]) < 0 or int(row[1]) < 0:
@@ -816,13 +803,6 @@ def _faithful_per_layer(
                 continue
             if la in local_consumed or lb in local_consumed:
                 continue
-            # Only merge if heuristic also selected this pair (or heuristic found
-            # nothing for these elems, in which case fall back to identify_edges).
-            pair_key = frozenset([la, lb])
-            if heuristic_local_pairs and pair_key not in heuristic_local_pairs:
-                # Heuristic has already assigned one of these to a different partner.
-                if ga in heuristic_consumed or gb in heuristic_consumed:
-                    continue
             try:
                 quad = merge_tri_pair(sel.sub_mesh, la, lb)
             except (ValueError, IndexError):

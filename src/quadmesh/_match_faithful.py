@@ -1,11 +1,13 @@
-"""Interior-layer heuristics for faithful QuADMESH+ pairing.
+"""Interior and boundary-layer heuristics for faithful QuADMESH+ pairing.
 
-Ports Chapter 4.1 of Mattioli (2017): eligible-neighbour counting, IE-before-OE
-ordering, T1 (fewest-eligible tiebreaker) and T2 (ladder) selection, and the
-intra-before-inter-layer / innermost-outward sweep order.
+Ports Chapter 4.1–4.2 of Mattioli (2017):
+  Ch 4.1 interior: eligible-neighbour counting, IE-before-OE ordering, T1
+    (fewest-eligible tiebreaker) and T2 (ladder) selection, intra-before-inter-
+    layer / innermost-outward sweep order.
+  Ch 4.2 boundary: OE-before-IE ordering, walkability edge-flip pre-pass on
+    RE_L (removed-edge list) + neighbours before the main pairing sweep.
 
-These functions are called by ``tri2quad._faithful_per_layer`` and replace the
-naïve first-come-first-served pass with the thesis-specified heuristics.
+These functions are called by ``tri2quad._faithful_per_layer``.
 """
 
 from __future__ import annotations
@@ -141,6 +143,60 @@ def _t2_ladder(
 
 # ── IE-before-OE ordering (thesis Ch 4.1) ────────────────────────────────────
 
+# ── T018 — boundary-layer helpers (Ch 4.2) ───────────────────────────────────
+
+def order_oe_before_ie(
+    layer_elem_ids: np.ndarray,
+    ie_ids: np.ndarray,
+    oe_ids: np.ndarray,
+) -> np.ndarray:
+    """OE-first ordering for boundary (outermost) layer sweep (Ch 4.2, p70)."""
+    ie_set = set(int(e) for e in ie_ids)
+    oe_set = set(int(e) for e in oe_ids)
+    oe_ordered = [int(e) for e in layer_elem_ids if int(e) in oe_set]
+    ie_ordered = [int(e) for e in layer_elem_ids if int(e) in ie_set]
+    rest = [int(e) for e in layer_elem_ids if int(e) not in ie_set and int(e) not in oe_set]
+    return np.array(oe_ordered + ie_ordered + rest, dtype=int)
+
+
+def walkability_prepass(
+    layer_conn: np.ndarray,
+    layer_global_ids: np.ndarray,
+    removed_edge_local_pairs: List[Tuple[int, int]],
+    pts: np.ndarray,
+    consumed: Set[int],
+) -> None:
+    """Edge-flip pre-pass on RE_L tris and their neighbours (Ch 4.2, p70).
+
+    For each tri in the removed-edge list (RE_L) that is currently isolated
+    (no eligible neighbour via the selected removed edge), attempt walk_isolated_tri
+    to create a pairable neighbour before the main sweep runs.
+
+    Modifies ``layer_conn`` in-place (local indexing).
+    """
+    from ._recombine import walk_isolated_tri, WorkingMesh
+
+    adj = _build_tri_adjacency(layer_conn)
+    flagged: Set[FrozenSet[int]] = set()
+
+    work = WorkingMesh(points=pts.copy(), quads=[])
+    work.tris = [row.copy() for row in layer_conn]  # type: ignore[attr-defined]
+
+    for la, lb in removed_edge_local_pairs:
+        for target in (la, lb):
+            if target in consumed:
+                continue
+            nbs = _eligible_neighbours(target, adj, consumed, flagged)
+            if nbs:
+                continue  # already walkable
+            walk_isolated_tri(work, target, pts, max_hops=3)
+
+    # Write flipped connectivity back into layer_conn.
+    for i, t in enumerate(work.tris):  # type: ignore[attr-defined]
+        if t is not None and i < len(layer_conn):
+            layer_conn[i] = t[:3]
+
+
 def order_ie_before_oe(
     layer_elem_ids: np.ndarray,
     ie_ids: np.ndarray,
@@ -170,8 +226,10 @@ def match_layer_heuristic(
     flagged_pairs: Optional[Set[FrozenSet[int]]] = None,
     already_consumed: Optional[Set[int]] = None,
     use_t2_ladder: bool = True,
+    is_boundary_layer: bool = False,
+    removed_edge_local_pairs: Optional[List[Tuple[int, int]]] = None,
 ) -> Tuple[List[Tuple[int, int]], Set[int]]:
-    """Apply T1+T2 heuristics to pair tris within a single layer.
+    """Apply T1+T2 (interior) or OE-first+walkability (boundary) heuristics.
 
     Args:
         layer_conn: (N, 3) local connectivity for this layer's elements.
@@ -182,6 +240,8 @@ def match_layer_heuristic(
         flagged_pairs: frozenset pairs that must not be merged (fold seams).
         already_consumed: global IDs already merged in prior layers.
         use_t2_ladder: if True, extend T1 selections with the T2 ladder walk.
+        is_boundary_layer: True for the outermost layer → OE-before-IE + walkability pre-pass (Ch 4.2).
+        removed_edge_local_pairs: RE_L pairs (local indices) for the walkability pre-pass.
 
     Returns:
         (pairs, newly_consumed) where pairs are (local_a, local_b) indices into
@@ -214,15 +274,26 @@ def match_layer_heuristic(
             if la >= 0 and lb >= 0:
                 local_flagged.add(frozenset([la, lb]))
 
-    # IE-before-OE ordering for candidate set.
-    ie_local = np.array([global_to_local[g] for g in ie_global_ids if g in global_to_local], dtype=int)
-    oe_local = np.array([global_to_local[g] for g in oe_global_ids if g in global_to_local], dtype=int)
-    all_local = order_ie_before_oe(
-        np.arange(n, dtype=int), ie_local, oe_local
-    )
-
     pairs: List[Tuple[int, int]] = []
     consumed = set(local_consumed)
+
+    # Ordering and pre-pass depend on interior vs boundary layer.
+    ie_local = np.array([global_to_local[g] for g in ie_global_ids if g in global_to_local], dtype=int)
+    oe_local = np.array([global_to_local[g] for g in oe_global_ids if g in global_to_local], dtype=int)
+
+    if is_boundary_layer:
+        # T018: OE-before-IE + walkability pre-pass (Ch 4.2, p70).
+        all_local = order_oe_before_ie(np.arange(n, dtype=int), ie_local, oe_local)
+        if removed_edge_local_pairs:
+            walkability_prepass(
+                layer_conn, layer_global_ids,
+                removed_edge_local_pairs, pts, consumed
+            )
+            # Rebuild adjacency after potential flips.
+            adj = _build_tri_adjacency(layer_conn)
+    else:
+        # T017: IE-before-OE (Ch 4.1).
+        all_local = order_ie_before_oe(np.arange(n, dtype=int), ie_local, oe_local)
 
     # First pass: T1 (fewest-eligible) sweeping IE then OE.
     for ti in all_local:

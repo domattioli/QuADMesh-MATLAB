@@ -75,6 +75,7 @@ class WorkingMesh:
 
     points: np.ndarray  # (n_verts, 3)
     quads: List[np.ndarray]  # list of (4,) quad connectivity rows.
+    tris: Optional[List[Optional[np.ndarray]]] = None  # scratch tri list for recombine ops
 
     def add_quad(self, quad: np.ndarray) -> int:
         idx = len(self.quads)
@@ -248,3 +249,88 @@ def route_leftover_tri(
         # MATLAB removeTrianglesFun: edgeBisection(1) when canRemoveEdges=false.
         edge_bisection(domain, work, tri_elem_id, bdy_edges_local[0])
     # Else: silently leave as triangle (degenerate, rare).
+
+
+# ── T019 — isolated-tri handling ─────────────────────────────────────────────
+
+def handle_isolated_tris(
+    layer_conn: np.ndarray,
+    layer_global_ids: np.ndarray,
+    consumed: set,
+    pts: np.ndarray,
+    work: WorkingMesh,
+) -> set:
+    """Pair remaining isolated tris in a layer via edge-swap fixup (CR-5, p66).
+
+    After the main pairing sweep, some tris may be isolated (no eligible
+    neighbour in the same layer). For each such tri, attempt walk_isolated_tri
+    to flip its neighbourhood so it gains a pairable neighbour, then merge.
+
+    Thesis CR-5 (p66): intentional vertex-pairing + post-match edge-swap fixup.
+    Returns the set of newly consumed global IDs.
+    """
+    from ._recombine import walk_isolated_tri
+
+    adj: dict = {}
+    edge2tris: dict = {}
+    for i, row in enumerate(layer_conn):
+        a, b, c = int(row[0]), int(row[1]), int(row[2])
+        for e in (tuple(sorted((a, b))), tuple(sorted((b, c))), tuple(sorted((a, c)))):
+            edge2tris.setdefault(e, []).append(i)
+    for tris_list in edge2tris.values():
+        if len(tris_list) == 2:
+            adj.setdefault(tris_list[0], []).append(tris_list[1])
+            adj.setdefault(tris_list[1], []).append(tris_list[0])
+
+    global_to_local = {int(g): i for i, g in enumerate(layer_global_ids)}
+    local_consumed = set(
+        global_to_local[g] for g in consumed if g in global_to_local
+    )
+
+    work.tris = [row.copy() for row in layer_conn]
+    newly_consumed: set = set()
+
+    n = len(layer_conn)
+    for li in range(n):
+        if li in local_consumed:
+            continue
+        nbs = [nb for nb in adj.get(li, []) if nb not in local_consumed]
+        if nbs:
+            continue  # has neighbour — will be handled by main sweep
+        # Isolated: attempt walk.
+        walk_isolated_tri(work, li, pts, max_hops=4)
+        # Refresh adjacency for this tri after potential flip.
+        tri_new = work.tris[li]
+        if tri_new is None:
+            continue
+        a, b, c = int(tri_new[0]), int(tri_new[1]), int(tri_new[2])
+        new_nbs = []
+        for e in (tuple(sorted((a, b))), tuple(sorted((b, c))), tuple(sorted((a, c)))):
+            for nb in edge2tris.get(e, []):
+                if nb != li and nb not in local_consumed:
+                    new_nbs.append(nb)
+        if not new_nbs:
+            continue
+        nb = new_nbs[0]
+        # Merge li + nb → quad.
+        try:
+            va_set = set(int(v) for v in work.tris[li][:3])
+            vb_set = set(int(v) for v in work.tris[nb][:3])
+            shared = list(va_set & vb_set)
+            if len(shared) != 2:
+                continue
+            unique_a = list(va_set - vb_set)[0]
+            unique_b = list(vb_set - va_set)[0]
+            s1, s2 = shared
+            quad = np.array([unique_a, s1, unique_b, s2], dtype=int)
+            work.add_quad(quad)
+            local_consumed.add(li)
+            local_consumed.add(nb)
+            ga = int(layer_global_ids[li])
+            gb = int(layer_global_ids[nb])
+            newly_consumed.add(ga)
+            newly_consumed.add(gb)
+        except (IndexError, ValueError):
+            continue
+
+    return newly_consumed

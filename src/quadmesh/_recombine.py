@@ -34,6 +34,8 @@ def _tris_sharing_edge(
 
     Returns (-1, -1) if fewer than 2 live tris share that edge.
     """
+    if work.tris is None:
+        return (-1, -1)
     hits = []
     for i, t in enumerate(work.tris):
         if t is None:
