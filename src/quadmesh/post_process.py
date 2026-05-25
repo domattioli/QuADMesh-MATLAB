@@ -36,12 +36,15 @@ def two_part_smoother(
     Default method is 'fem' (fast: ~0.3s/pass on 2417 elems).
     Use method='angle-based' for higher quality at ~40s/pass (chilmesh 0.4 is slow).
 
-    A node occasionally flies outside the domain when chilmesh misclassifies a
-    geometric-boundary node as interior (open quad one-ring undetected): the FEM
-    Laplacian then pulls it toward an out-of-domain centroid. Guard: after each
-    pass, revert any node that left the pre-smooth bounding box (with a small
-    margin) back to its prior position. This keeps the smoother monotone-safe
-    without depending on chilmesh boundary internals.
+    The FEM stiffness matrix goes near-singular wherever tri2quad's boundary-tri
+    squeeze (edge_removal) left a tight cluster of near-coincident vertices; the
+    solve then flings that whole cluster many element-widths away, drawing
+    long "spoke" edges across the domain. Guard: after each pass, revert any
+    node whose displacement exceeds ``cap_factor`` × its local edge scale (median
+    incident-edge length pre-pass) back to its prior position. Reverting the
+    whole offending set simultaneously keeps neighbourhoods consistent (a lone
+    bbox check left reverted nodes stranded beside un-reverted neighbours,
+    re-creating the spoke). Independent of chilmesh boundary internals.
 
     Args:
         mesh: CHILmesh to smooth.
@@ -50,26 +53,42 @@ def two_part_smoother(
     """
     import numpy as np
 
+    cap_factor = 3.0  # max allowed move = cap_factor × local median edge length
+
     for _ in range(n_iter):
         prev = mesh.points[:, :2].copy()
-        lo = prev.min(axis=0)
-        hi = prev.max(axis=0)
-        span = hi - lo
-        margin = 0.02 * span  # 2% bbox margin tolerance
+        n = len(prev)
+
+        # Local edge scale per node: median length of its incident edges.
+        edge_sum = np.zeros(n)
+        edge_cnt = np.zeros(n)
+        for row in mesh.connectivity_list:
+            v = [int(x) for x in row if int(x) >= 0]
+            k = len(v)
+            for j in range(k):
+                a, b = v[j], v[(j + 1) % k]
+                L = float(np.hypot(prev[a, 0] - prev[b, 0], prev[a, 1] - prev[b, 1]))
+                edge_sum[a] += L
+                edge_cnt[a] += 1
+                edge_sum[b] += L
+                edge_cnt[b] += 1
+        scale = np.where(edge_cnt > 0, edge_sum / np.maximum(edge_cnt, 1), 0.0)
+
         try:
             mesh.smooth_mesh(method=method, acknowledge_change=True)
         except Exception:
             break
+
         cur = mesh.points[:, :2]
         m = min(len(prev), len(cur))
-        outside = (
-            (cur[:m, 0] < lo[0] - margin[0])
-            | (cur[:m, 0] > hi[0] + margin[0])
-            | (cur[:m, 1] < lo[1] - margin[1])
-            | (cur[:m, 1] > hi[1] + margin[1])
-        )
-        if outside.any():
-            mesh.points[:m][outside, :2] = prev[outside]
+        disp = np.hypot(cur[:m, 0] - prev[:m, 0], cur[:m, 1] - prev[:m, 1])
+        cap = cap_factor * scale[:m]
+        # Cap of 0 (isolated node) → use global median edge as fallback.
+        global_scale = float(np.median(scale[scale > 0])) if np.any(scale > 0) else 0.0
+        cap = np.where(cap > 0, cap, cap_factor * global_scale)
+        runaway = disp > cap
+        if runaway.any():
+            mesh.points[:m][runaway, :2] = prev[runaway]
     return mesh
 
 
