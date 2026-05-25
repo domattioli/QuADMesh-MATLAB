@@ -206,10 +206,50 @@ class AnnulusPipelineScene(Scene):
             )
             for row in S["quad_conn"]
         ]
-        quad_group = VGroup(*quad_polys)
-        tri_group = VGroup(*tri_polys)
-        # Cross-fade.
-        self.play(FadeOut(tri_group), FadeIn(quad_group), run_time=1.4)
+
+        # Layer-by-layer conversion (innermost first) mirrors the QuADMESH+
+        # sweep. Assign every tri and quad to a layer by centroid radius, then
+        # for each layer: clear that band's tris, then draw that band's quads.
+        # Sequential within each step — never two layers superimposed, so no
+        # tri diagonals bleed through (which read as overlapping quads + gaps).
+        tri_layer = np.asarray(S["tri_layer"])
+        nlay = int(S["n_layers"])
+        t_cr = np.array(
+            [np.linalg.norm(S["tri_pts"][r].mean(axis=0)) for r in S["tri_conn"]]
+        )
+        layer_r = np.array([
+            t_cr[tri_layer == k].mean() if np.any(tri_layer == k) else np.inf
+            for k in range(nlay)
+        ])
+
+        def _quad_cr(row):
+            a, b, c, d = (int(x) for x in row)
+            idx = [b, c, d] if a == b else [a, b, c, d]
+            return np.linalg.norm(S["quad_pts"][idx].mean(axis=0))
+
+        quad_layer = np.array([
+            int(np.argmin(np.abs(layer_r - _quad_cr(row)))) for row in S["quad_conn"]
+        ])
+
+        # Innermost (smallest mean radius) first.
+        order = [k for k in np.argsort(layer_r) if np.isfinite(layer_r[k])]
+        for k in order:
+            t_idx = [i for i, l in enumerate(tri_layer) if l == k]
+            q_idx = [i for i, l in enumerate(quad_layer) if l == k]
+            if t_idx:
+                self.play(
+                    FadeOut(VGroup(*[tri_polys[i] for i in t_idx])), run_time=0.45
+                )
+            if q_idx:
+                self.play(
+                    FadeIn(VGroup(*[quad_polys[i] for i in q_idx])), run_time=0.55
+                )
+        # Sweep up any tris whose layer drew no quads (defensive).
+        leftover = VGroup(*[
+            tri_polys[i] for i in range(len(tri_polys)) if tri_layer[i] not in order
+        ])
+        if len(leftover):
+            self.play(FadeOut(leftover), run_time=0.3)
         self.wait(1.0)
         self.play(FadeOut(caption))
         return quad_polys
@@ -233,11 +273,13 @@ class AnnulusPipelineScene(Scene):
             for row in S["post_conn"]
         ]
         # Post-process changes the element COUNT (collapse + merge), so a 1:1
-        # ReplacementTransform would strand the surplus raw quads on screen
-        # (they overlap the post mesh). Cross-fade whole groups instead.
+        # ReplacementTransform would strand the surplus raw quads on screen.
+        # Clear the raw quads fully before drawing the post mesh — a simultaneous
+        # cross-fade would superimpose the two layers and read as overlap.
         old_group = VGroup(*quad_polys)
         new_group = VGroup(*new_polys)
-        self.play(FadeOut(old_group), FadeIn(new_group), run_time=SMOOTH_DURATION)
+        self.play(FadeOut(old_group), run_time=0.9)
+        self.play(FadeIn(new_group), run_time=SMOOTH_DURATION)
         self.wait(1.0)
         self.play(FadeOut(caption))
 
