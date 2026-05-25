@@ -4,7 +4,7 @@
 
 Interior residual triangle (tri with NO domain-boundary edge) after tri2quad = **NOT a faithful QuADMESH+ implementation**. Zero interior tris is mandatory — a properly-implemented QuADMESH+ never leaves one. Only **boundary** tris may remain (thesis minimizes even those; ≤1 typical). Pinned by `tests/test_no_interior_tris.py`.
 
-Status: `method="matching"` has zero interior tris by construction (faithful on this axis). `method="faithful"` (layer sweep) currently leaves interior tris → it is **WIP, NOT yet faithful**; closing that gap (Ch 4 IE-before-OE + inter-layer matching, faithful-port-tasks T017/T018) is required before it can be called faithful or made default.
+Status: `method="matching"` has zero interior tris by construction (faithful on this axis). `method="faithful"` per-layer loop (T020/T004) now implemented — zero interior tris confirmed, quality 0.375→0.573 on Test_Case_1. **Still WIP** — Ch 4 IE-before-OE interior heuristics (T017) and boundary-layer OE-before-IE + walkability pre-pass (T018) are not yet implemented; until those land, `method="faithful"` must not be made default.
 
 ## Routine
 

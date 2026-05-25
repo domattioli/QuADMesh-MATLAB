@@ -19,12 +19,54 @@ common path. Behaviour matches MATLAB on typical meshes (Test_Case_1, Block_O).
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional
 
 import numpy as np
 
 from chilmesh import CHILmesh
+
+
+@dataclass
+class LayerState:
+    """Snapshot of OE/IE/OV/IV membership per layer. Tracks mutations.
+
+    Route ops (edge_removal, edge_bisection, edge_insertion) can shift vertex
+    membership across layers. Call ``sync`` after each layer to refresh the
+    snapshot so subsequent identify_edges_in_layer calls see consistent state.
+    """
+
+    oe: List[np.ndarray]  # per-layer outer elements
+    ie: List[np.ndarray]  # per-layer inner elements
+    ov: List[np.ndarray]  # per-layer outer vertices
+    iv: List[np.ndarray]  # per-layer inner vertices
+    mutated: bool = False
+
+    @classmethod
+    def from_domain(cls, domain: CHILmesh) -> "LayerState":
+        """Snapshot current layer membership from a domain CHILmesh."""
+        layers = domain.layers
+        nl = int(getattr(domain, "n_layers", 0) or 0)
+        return cls(
+            oe=[np.asarray(layers["OE"][i], dtype=int) for i in range(nl)],
+            ie=[np.asarray(layers["IE"][i], dtype=int) for i in range(nl)],
+            ov=[np.asarray(layers["OV"][i], dtype=int) for i in range(nl)],
+            iv=[np.asarray(layers["IV"][i], dtype=int) for i in range(nl)],
+        )
+
+    def sync(self, domain: CHILmesh) -> None:
+        """Refresh snapshot from domain after route ops have mutated it."""
+        layers = domain.layers
+        nl = int(getattr(domain, "n_layers", 0) or 0)
+        for i in range(min(nl, len(self.oe))):
+            self.oe[i] = np.asarray(layers["OE"][i], dtype=int)
+            self.ie[i] = np.asarray(layers["IE"][i], dtype=int)
+            self.ov[i] = np.asarray(layers["OV"][i], dtype=int)
+            self.iv[i] = np.asarray(layers["IV"][i], dtype=int)
+        self.mutated = False
+
+    def mark_mutated(self) -> None:
+        self.mutated = True
 
 
 @dataclass
