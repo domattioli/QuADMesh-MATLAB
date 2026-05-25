@@ -36,17 +36,42 @@ def two_part_smoother(
     Default method is 'fem' (fast: ~0.3s/pass on 2417 elems).
     Use method='angle-based' for higher quality at ~40s/pass (chilmesh 0.4 is slow).
 
+    A node occasionally flies outside the domain when chilmesh misclassifies a
+    geometric-boundary node as interior (open quad one-ring undetected): the FEM
+    Laplacian then pulls it toward an out-of-domain centroid. Guard: after each
+    pass, revert any node that left the pre-smooth bounding box (with a small
+    margin) back to its prior position. This keeps the smoother monotone-safe
+    without depending on chilmesh boundary internals.
+
     Args:
         mesh: CHILmesh to smooth.
         n_iter: Number of smooth passes.
         method: 'fem' (default) or 'angle-based'.
     """
+    import numpy as np
+
     for _ in range(n_iter):
+        prev = mesh.points[:, :2].copy()
+        lo = prev.min(axis=0)
+        hi = prev.max(axis=0)
+        span = hi - lo
+        margin = 0.02 * span  # 2% bbox margin tolerance
         try:
             mesh.smooth_mesh(method=method, acknowledge_change=True)
         except Exception:
             break
+        cur = mesh.points[:, :2]
+        m = min(len(prev), len(cur))
+        outside = (
+            (cur[:m, 0] < lo[0] - margin[0])
+            | (cur[:m, 0] > hi[0] + margin[0])
+            | (cur[:m, 1] < lo[1] - margin[1])
+            | (cur[:m, 1] > hi[1] + margin[1])
+        )
+        if outside.any():
+            mesh.points[:m][outside, :2] = prev[outside]
     return mesh
+
 
 
 def post_process_routine(
