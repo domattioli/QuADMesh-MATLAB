@@ -1,3 +1,7 @@
+<p align="center">
+  <video src="videos/quadmesh_logo.mp4" autoplay loop muted playsinline width="680"></video>
+</p>
+
 <h1 align="center">QuADMESH</h1>
 
 <p align="center">
