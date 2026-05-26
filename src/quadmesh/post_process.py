@@ -23,22 +23,53 @@ from .remove_unused import remove_unused_vertices
 
 
 def fem_smoother(mesh: CHILmesh, n_iter: int = 3) -> CHILmesh:
-    """FEM direct-solve smoother: n_iter passes of chilmesh ``smooth_mesh('fem')``.
+    """FEM direct-solve smoother: up to ``n_iter`` passes of chilmesh ``smooth_mesh('fem')``.
+
+    The chilmesh FEM solve can diverge: a near-singular stiffness matrix yields
+    garbage that ``spsolve`` does not raise on, so each pass flings vertices
+    farther out and *lowers* quality (e.g. Test_Case_1: pass 1 mean 0.71, pass 2
+    0.62, pass 3 0.37 with max displacement growing 1.6 -> 61 -> 3800). Guard
+    every pass — revert and stop the moment one produces non-finite coordinates,
+    moves a vertex farther than the domain diagonal, or fails to improve mean
+    quality — and keep the best pass rather than the last.
 
     Args:
         mesh: CHILmesh to smooth.
-        n_iter: Number of FEM passes.
+        n_iter: Max FEM passes (stops early once a pass stops improving).
     """
     if n_iter <= 0:
         return mesh
+    import numpy as np
+
+    from .quality_report import compute_quality_stats
+
     # Element-less vertices add zero rows to the stiffness matrix, making it
     # singular and spsolve return garbage; drop them so every caller is safe.
     mesh = remove_unused_vertices(mesh)
+
+    pts = np.asarray(mesh.points)[:, :2]
+    diag = float(np.linalg.norm(pts.max(axis=0) - pts.min(axis=0))) or 1.0
+    best_mean = compute_quality_stats(mesh)["mean"]
+
     for _ in range(n_iter):
+        before = np.asarray(mesh.points).copy()
         try:
             mesh.smooth_mesh(method="fem", acknowledge_change=True)
         except Exception:
+            mesh.points[...] = before
             break
+        now = np.asarray(mesh.points)[:, :2]
+        if (
+            not np.isfinite(now).all()
+            or np.linalg.norm(now - before[:, :2], axis=1).max() > diag
+        ):
+            mesh.points[...] = before  # diverged solve — discard this pass
+            break
+        cur_mean = compute_quality_stats(mesh)["mean"]
+        if cur_mean + 1e-9 < best_mean:
+            mesh.points[...] = before  # pass no longer improving — keep the best
+            break
+        best_mean = cur_mean
     return mesh
 
 
