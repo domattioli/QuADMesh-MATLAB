@@ -65,8 +65,8 @@ def test_no_bowtie_quads(domain):
     pts = result.points[:, :2]
     bowties = []
     for i, row in enumerate(conn):
-        if int(row[3]) < 0:
-            continue  # tri row
+        if int(row[3]) < 0 or int(row[0]) == int(row[3]):
+            continue  # tri row (padded or repeated-first-vertex form)
         a, b, c, d = int(row[0]), int(row[1]), int(row[2]), int(row[3])
         if _segments_cross(pts[a], pts[b], pts[c], pts[d]):
             bowties.append(i)
@@ -82,7 +82,7 @@ def test_zero_area_quads(domain):
     pts = result.points[:, :2]
     degenerate = []
     for i, row in enumerate(conn):
-        if int(row[3]) < 0:
+        if int(row[3]) < 0 or int(row[0]) == int(row[3]):
             continue
         verts = [int(row[j]) for j in range(4)]
         p = pts[verts]
