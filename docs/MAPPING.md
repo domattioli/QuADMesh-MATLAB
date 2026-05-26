@@ -27,9 +27,9 @@ Port status. v0.4.
 | `08_Quad_Vertex_Merge/QuadVertexMerge.m` | - | skip (legacy) |
 | `08_Quad_Vertex_Merge/QuadVertexMerge_v2.m` | `quad_vertex_merge.quad_vertex_merge` | done |
 | `10_Remove_Unused_Vertices/RemoveUnusedVertices.m` | `remove_unused.remove_unused_vertices` | done |
-| `11_FEM_Smoothing/FEMSmooth.m` | `post_process.two_part_smoother` | done |
-| `11_FEM_Smoothing/MCSmooth.m` | `post_process.two_part_smoother` | done |
-| `11_FEM_Smoothing/twoPartSmoother.m` | `post_process.two_part_smoother` | done v0.3 (bug fixed: angle-based method; default FEM; sub-domain deferred) |
+| `11_FEM_Smoothing/FEMSmooth.m` | `post_process.fem_smoother` | done |
+| `11_FEM_Smoothing/MCSmooth.m` | - | not ported (boundary-layer MCSmooth half never implemented) |
+| `11_FEM_Smoothing/twoPartSmoother.m` | `post_process.fem_smoother` | done (FEM half only; renamed from `two_part_smoother`, MCSmooth half absent) |
 | `11_FEM_Smoothing/extdom_edges2.m` | `chilmesh.boundary_edges()` | done via chilmesh |
 | `99_In_Progress/*` | - | skip (drafts) |
 
@@ -77,8 +77,9 @@ Current Python (v0.2+): MATLAB-aligned.
    + adjacency invalidation; pair with chilmesh#132 wiring.
 2. Aggressive leftover-tri routing wired into `tri2quad_routine` -- blocked
    by chilmesh#132.
-3. `two_part_smoother` sub-domain split -- needs `CHILmesh.submesh()`
-   public API (chilmesh#138).
+3. ~~`two_part_smoother` sub-domain split~~ -- dropped (#44). The MCSmooth
+   boundary-layer half of the MATLAB two-part smoother was never ported; the
+   smoother is FEM-only (`fem_smoother`), so no `CHILmesh.submesh()` split is planned.
 4. ADMESH library (`01_ADMESH_Library/`).
 5. MATLAB ground-truth elem counts for parity tests -- current scaffold uses
    Python regression baseline (Block_O `.mat` is MATLAB-opaque, can't extract
@@ -89,5 +90,5 @@ Current Python (v0.2+): MATLAB-aligned.
 - chilmesh#132: `MutableMesh.merge_elements` stub -- quadmesh aggressive path needs this.
 - chilmesh#133: Public `ccw_edges_around_vert` helper -- remove duplication in `_topology.py`.
 - chilmesh#134: `CHILmesh(compute_adjacencies=True)` independent of `compute_layers`.
-- chilmesh#138: `CHILmesh.submesh(elem_ids)` public API -- needed for two_part_smoother sub-domain split (boundary vs interior layers).
+- chilmesh#138: `CHILmesh.submesh(elem_ids)` public API -- was wanted for the two-part smoother boundary/interior split, now dropped (#44, FEM-only `fem_smoother`); no longer a quadmesh smoother blocker.
 - chilmesh#139: `angle_based_smoother` performance -- ~42s/pass on 2417-elem mesh; currently disabled as default. Port uses FEM smoother only.

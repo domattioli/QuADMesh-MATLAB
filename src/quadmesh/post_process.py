@@ -1,19 +1,16 @@
-"""Post-process orchestrator. Port of MATLAB PostProcessRoutine.m + twoPartSmoother.m.
+"""Post-process orchestrator. Port of MATLAB PostProcessRoutine.m.
 
-MAT twoPartSmoother for non-mixed meshes applied MCSmooth to boundary layers (1-3) and
-FEMSmooth to interior elements.  For mixed-element meshes (typical output), MATLAB just
-runs FEMSmoother once.  We match that behavior: n_iter passes of FEM by default.
-
-Angle-based smooth is available as opt-in (method='angle-based') but is slow (~40s/pass
-on 2417 elements in chilmesh 0.4); avoid in production until chilmesh vectorises it.
+Smoothing is a FEM direct solve, iterated n_iter passes (chilmesh
+``smooth_mesh('fem')``). MATLAB's ``twoPartSmoother.m`` also ran MCSmooth on the
+boundary layers, but that half was never ported — the Python path has always
+been FEM-only — so the smoother is named for what it is: ``fem_smoother``.
 
 Pipeline:
     repeat until stable (max_outer_iter):
         repeat until stable (max_inner_iter):
             doublet_collapse -> quad_vertex_merge
         cleanup_boundary_quads
-    remove_unused_vertices
-    two_part_smoother
+    fem_smoother  (compacts unused verts, then n_iter FEM passes)
 """
 from __future__ import annotations
 
@@ -25,25 +22,21 @@ from .quad_vertex_merge import quad_vertex_merge
 from .remove_unused import remove_unused_vertices
 
 
-def two_part_smoother(
-    mesh: CHILmesh,
-    n_iter: int = 3,
-    method: str = "fem",
-) -> CHILmesh:
-    """Iterative mesh smoother. Port of MATLAB twoPartSmoother.m.
-
-    MATLAB mixed-element path: single FEM pass. We generalise to n_iter passes.
-    Default method is 'fem' (fast: ~0.3s/pass on 2417 elems).
-    Use method='angle-based' for higher quality at ~40s/pass (chilmesh 0.4 is slow).
+def fem_smoother(mesh: CHILmesh, n_iter: int = 3) -> CHILmesh:
+    """FEM direct-solve smoother: n_iter passes of chilmesh ``smooth_mesh('fem')``.
 
     Args:
         mesh: CHILmesh to smooth.
-        n_iter: Number of smooth passes.
-        method: 'fem' (default) or 'angle-based'.
+        n_iter: Number of FEM passes.
     """
+    if n_iter <= 0:
+        return mesh
+    # Element-less vertices add zero rows to the stiffness matrix, making it
+    # singular and spsolve return garbage; drop them so every caller is safe.
+    mesh = remove_unused_vertices(mesh)
     for _ in range(n_iter):
         try:
-            mesh.smooth_mesh(method=method, acknowledge_change=True)
+            mesh.smooth_mesh(method="fem", acknowledge_change=True)
         except Exception:
             break
     return mesh
@@ -62,7 +55,7 @@ def post_process_routine(
     Args:
         mesh: Quad (or mixed) CHILmesh from tri2quad.
         can_remove_edges: Allow boundary-quad collapse.
-        n_smooth_iter: Passes for two_part_smoother.
+        n_smooth_iter: Passes for fem_smoother.
         max_outer_iter: Outer loop cap.
         max_inner_iter: Inner loop cap (doublet + QVM).
         repair: Apply ``repair_chilmesh`` as a final pass — snap
@@ -91,8 +84,7 @@ def post_process_routine(
             break
         n_elems_prev = mesh.n_elems
 
-    mesh = remove_unused_vertices(mesh)
-    mesh = two_part_smoother(mesh, n_iter=n_smooth_iter)
+    mesh = fem_smoother(mesh, n_iter=n_smooth_iter)
 
     # Smoother moves vertices without bowtie guard; fix any self-intersecting
     # quads it creates by reordering their vertices (no point added/deleted).
