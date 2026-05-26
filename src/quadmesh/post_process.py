@@ -25,6 +25,52 @@ from .quad_vertex_merge import quad_vertex_merge
 from .remove_unused import remove_unused_vertices
 
 
+def _balendran_smooth(mesh: "CHILmesh") -> "np.ndarray":
+    """Balendran direct FEM smoother matching MATLAB FEMSmooth.m exactly.
+
+    chilmesh direct_smoother is bugged: it applies angle-based cotangent forces
+    (Zhou & Shimada) as RHS, which is inconsistent with the Balendran rotation
+    stiffness matrix K. On large meshes this causes K*x=F to have no geometric
+    meaning, flinging interior nodes hundreds of element-widths.
+
+    MATLAB FEMSmooth.m uses F=0 for interior nodes — K drives equilibrium purely
+    via structural coupling to pinned boundary nodes. This function replicates that.
+
+    See chilmesh issue #173 for details.
+    """
+    import numpy as np
+    from scipy.sparse import csr_matrix
+    from scipy.sparse.linalg import spsolve
+
+    kinf = 1e12
+    p = mesh.points[:, :2].copy()
+    n = mesh.n_verts
+
+    tri_indices, quad_indices = mesh._detect_element_types()
+    if len(quad_indices) == 0:
+        rows, cols, data = mesh._tri_stiffness_assembly(tri_indices, p, n)
+    elif len(tri_indices) == 0:
+        rows, cols, data = mesh._quad_stiffness_assembly(quad_indices, p, n)
+    else:
+        rows, cols, data = mesh._mixed_stiffness_assembly(tri_indices, quad_indices, p, n)
+
+    K = csr_matrix((data, (rows, cols)), shape=(2 * n, 2 * n))
+    F = np.zeros(2 * n)  # zero interior RHS — matches MATLAB FEMSmooth.m
+
+    edge_verts = mesh.edge2vert(mesh.boundary_edges())
+    boundary_nodes = np.unique(edge_verts.flatten())
+    for v in boundary_nodes:
+        v = int(v)
+        F[2 * v : 2 * v + 2] = kinf * p[v]
+        K[2 * v, 2 * v] = kinf
+        K[2 * v + 1, 2 * v + 1] = kinf
+
+    c = spsolve(K, F)
+    new_pts = mesh.points.copy()
+    new_pts[:, :2] = c.reshape(-1, 2)
+    return new_pts
+
+
 def two_part_smoother(
     mesh: CHILmesh,
     n_iter: int = 3,
@@ -33,18 +79,8 @@ def two_part_smoother(
     """Iterative mesh smoother. Port of MATLAB twoPartSmoother.m.
 
     MATLAB mixed-element path: single FEM pass. We generalise to n_iter passes.
-    Default method is 'fem' (fast: ~0.3s/pass on 2417 elems).
-    Use method='angle-based' for higher quality at ~40s/pass (chilmesh 0.4 is slow).
-
-    The FEM stiffness matrix goes near-singular wherever tri2quad's boundary-tri
-    squeeze (edge_removal) left a tight cluster of near-coincident vertices; the
-    solve then flings that whole cluster many element-widths away, drawing
-    long "spoke" edges across the domain. Guard: after each pass, revert any
-    node whose displacement exceeds ``cap_factor`` × its local edge scale (median
-    incident-edge length pre-pass) back to its prior position. Reverting the
-    whole offending set simultaneously keeps neighbourhoods consistent (a lone
-    bbox check left reverted nodes stranded beside un-reverted neighbours,
-    re-creating the spoke). Independent of chilmesh boundary internals.
+    Default method is 'fem' (fast: ~1.5s/pass on 46k elems).
+    Use method='angle-based' for higher quality at ~1400s/pass (chilmesh is slow).
 
     Args:
         mesh: CHILmesh to smooth.
@@ -53,42 +89,16 @@ def two_part_smoother(
     """
     import numpy as np
 
-    cap_factor = 3.0  # max allowed move = cap_factor × local median edge length
-
     for _ in range(n_iter):
-        prev = mesh.points[:, :2].copy()
-        n = len(prev)
-
-        # Local edge scale per node: median length of its incident edges.
-        edge_sum = np.zeros(n)
-        edge_cnt = np.zeros(n)
-        for row in mesh.connectivity_list:
-            v = [int(x) for x in row if int(x) >= 0]
-            k = len(v)
-            for j in range(k):
-                a, b = v[j], v[(j + 1) % k]
-                L = float(np.hypot(prev[a, 0] - prev[b, 0], prev[a, 1] - prev[b, 1]))
-                edge_sum[a] += L
-                edge_cnt[a] += 1
-                edge_sum[b] += L
-                edge_cnt[b] += 1
-        scale = np.where(edge_cnt > 0, edge_sum / np.maximum(edge_cnt, 1), 0.0)
-
         try:
-            mesh.smooth_mesh(method=method, acknowledge_change=True)
+            if method == "fem":
+                new_pts = _balendran_smooth(mesh)
+                mesh.points[:, :2] = new_pts[:, :2]
+            else:
+                mesh.smooth_mesh(method=method, acknowledge_change=True)
         except Exception:
             break
 
-        cur = mesh.points[:, :2]
-        m = min(len(prev), len(cur))
-        disp = np.hypot(cur[:m, 0] - prev[:m, 0], cur[:m, 1] - prev[:m, 1])
-        cap = cap_factor * scale[:m]
-        # Cap of 0 (isolated node) → use global median edge as fallback.
-        global_scale = float(np.median(scale[scale > 0])) if np.any(scale > 0) else 0.0
-        cap = np.where(cap > 0, cap, cap_factor * global_scale)
-        runaway = disp > cap
-        if runaway.any():
-            mesh.points[:m][runaway, :2] = prev[runaway]
     return mesh
 
 
