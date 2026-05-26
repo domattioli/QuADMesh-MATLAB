@@ -117,10 +117,11 @@ def test_edge_bisection_creates_one_quad_one_new_vert(three_tri_strip, work_for)
         three_tri_strip, work_for, tri_elem_id=0, bdy_edge_idx_in_tri=0
     )
     assert np_id is not None
-    # New vertex appended.
-    assert work_for.points.shape[0] == n_pts_before + 1
-    assert np.allclose(work_for.points[np_id, :2], [0.5, 0.0])
-    # domain.points padded to keep IDs aligned.
+    # New vertex buffered (work.n_pts reflects full count before flush).
+    assert work_for.n_pts == n_pts_before + 1
+    assert np.allclose(work_for.get_extra_point(np_id)[:2], [0.5, 0.0])
+    # domain.points grows only after flush_points_to_domain.
+    work_for.flush_points_to_domain(three_tri_strip)
     assert three_tri_strip.points.shape[0] == n_pts_before + 1
     # One quad appended.
     assert len(work_for.quads) == 1
@@ -138,7 +139,8 @@ def test_edge_bisection_quad_is_ccw(three_tri_strip, work_for):
     )
     assert np_id is not None
     quad = work_for.quads[0]
-    pts = work_for.points[quad, :2]
+    all_pts = np.vstack([work_for.points] + work_for._extra_pts)
+    pts = all_pts[quad, :2]
     x, y = pts[:, 0], pts[:, 1]
     area = 0.5 * np.sum(x * np.roll(y, -1) - y * np.roll(x, -1))
     assert area > 0, f"quad not CCW (area={area})"
@@ -183,7 +185,7 @@ def test_edge_insertion_creates_quad_from_tri(three_tri_strip, work_for):
         three_tri_strip, work_for, tri_elem_id=1, bdy_vert_id=4
     )
     assert np_id is not None
-    assert work_for.points.shape[0] == n_pts_before + 1
+    assert work_for.n_pts == n_pts_before + 1
     assert len(work_for.quads) == 1
     quad = work_for.quads[0]
     assert quad.shape == (4,)
@@ -211,7 +213,7 @@ def test_edge_insertion_new_point_along_opposing_edge(three_tri_strip, work_for)
     )
     assert np_id is not None
     bdy_xyz = three_tri_strip.points[4]
-    new_xyz = work_for.points[np_id]
+    new_xyz = work_for.get_extra_point(np_id)
     # New point must be on the segment between bdy_vert and one other tri
     # vert. Find which.
     conn = np.array([1, 4, 3], dtype=int)

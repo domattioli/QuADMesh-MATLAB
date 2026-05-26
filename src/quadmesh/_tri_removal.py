@@ -73,9 +73,14 @@ class LayerState:
 class WorkingMesh:
     """Mutable scratch state during tri2quad."""
 
-    points: np.ndarray  # (n_verts, 3)
+    points: np.ndarray  # (n_verts, 3) — original points; not grown during sweep
     quads: List[np.ndarray]  # list of (4,) quad connectivity rows.
-    tris: Optional[List[Optional[np.ndarray]]] = None  # scratch tri list for recombine ops
+    tris: Optional[List[Optional[np.ndarray]]] = None
+    _n_pts: int = field(default=0, init=False, repr=False)
+    _extra_pts: List[np.ndarray] = field(default_factory=list, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_n_pts", self.points.shape[0])
 
     def add_quad(self, quad: np.ndarray) -> int:
         idx = len(self.quads)
@@ -83,11 +88,34 @@ class WorkingMesh:
         return idx
 
     def add_point(self, xyz: np.ndarray) -> int:
+        # Buffer new points in a list; domain.points is synced once at end of
+        # _faithful_per_layer via flush_points_to_domain().  New point coords are
+        # never read back from domain.points during the sweep.
         xyz = np.asarray(xyz, dtype=float).ravel()
         if xyz.size == 2:
             xyz = np.array([xyz[0], xyz[1], 0.0])
-        self.points = np.vstack([self.points, xyz])
-        return self.points.shape[0] - 1
+        idx = self._n_pts
+        self._extra_pts.append(xyz)
+        object.__setattr__(self, "_n_pts", idx + 1)
+        return idx
+
+    @property
+    def n_pts(self) -> int:
+        """Total point count including buffered new points."""
+        return self._n_pts
+
+    def get_extra_point(self, idx: int) -> np.ndarray:
+        """Coordinates for a buffered new vertex (idx >= original n_pts)."""
+        offset = idx - self.points.shape[0]
+        return self._extra_pts[offset]
+
+    def flush_points_to_domain(self, domain) -> None:
+        """Extend domain.points with all buffered new points in one vstack."""
+        if not self._extra_pts:
+            return
+        extra = np.stack(self._extra_pts)
+        domain.points = np.vstack([domain.points, extra])
+        self._extra_pts.clear()
 
 
 def edge_removal(domain: CHILmesh, work: WorkingMesh, tri_elem_id: int,
@@ -126,8 +154,8 @@ def edge_bisection(domain: CHILmesh, work: WorkingMesh, tri_elem_id: int,
 
     mid = 0.5 * (domain.points[v_a] + domain.points[v_b])
     np_id = work.add_point(mid)
-    # Pad domain.points so vertex IDs stay aligned with downstream work.points.
-    domain.points = np.vstack([domain.points, mid.reshape(1, -1)])
+    # np_id only used in work.quads connectivity; domain.points[np_id] never
+    # read back so no need to grow domain.points here.
 
     # Build new quad: rotate tri conn so v_a, v_b are adjacent, then insert np_id between.
     conn = domain.connectivity_list[tri_elem_id, :3].astype(int)
@@ -196,7 +224,6 @@ def edge_insertion(domain: CHILmesh, work: WorkingMesh, tri_elem_id: int,
         + (1.0 / 3.0) * domain.points[other]
     )
     np_id = work.add_point(new_xyz)
-    domain.points = np.vstack([domain.points, new_xyz.reshape(1, -1)])
 
     # Quad = [bdy_vert_id, np_id, other, third_vert_of_tri]
     third = int([v for v in conn if v not in (bdy_vert_id, other)][0])

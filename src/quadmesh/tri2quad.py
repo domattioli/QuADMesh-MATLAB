@@ -863,7 +863,8 @@ def _faithful_per_layer(
         if i not in consumed and len(set(tris[i].tolist())) == 3
     ]
 
-    # Sync points — route ops may have augmented domain.points via bisection/insertion.
+    # Flush buffered new points to domain in one batch vstack, then sync.
+    work.flush_points_to_domain(domain)
     points_out = domain.points.copy()
 
     return [tuple(int(v) for v in q) for q in work.quads], leftover_idx, points_out
