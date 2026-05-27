@@ -56,7 +56,7 @@ Python pkg `python/quadmesh/`, tests `python/tests/`, golden data `python/tests/
 - [ ] T011 [P] [M2] `python/tests/test_recombination_ops.py`: edge-swap / vertex-dup / edge-flip unit cases on minimal hand-built meshes.
 
 ### Implementation for M2
-- [ ] T012 [M2] `LayerState` dataclass in `python/quadmesh/_layer_state.py`: `OE/IE/OV/IV: list[np.ndarray]` + `from_mesh(domain)` snapshot + mutation helpers. (Plan §4; `case-2-design.md`.)
+- [x] T012 [M2] `LayerState` dataclass in `src/quadmesh/_layer_state.py`: `OE/IE/OV/IV: list[np.ndarray]` + `from_mesh(domain)` snapshot + `add`/`remove`/`members`/`contains` mutation helpers. (Plan §4; `case-2-design.md`.) Tests: `tests/test_layer_state.py`.
 - [ ] T013 [M2] Edge-swap op `python/quadmesh/_recombine.py::edge_swap(...)` — two tris sharing one vertex → reconnect to share an edge (thesis Fig 3.2, p39).
 - [ ] T014 [P] [M2] Vertex-duplication op `_recombine.py::vertex_duplication(...)` (Fig 3.3, p39).
 - [ ] T015 [P] [M2] Edge-flip op + walk driver `_recombine.py::edge_flip(...)` / `walk_isolated_tri(...)` (Fig 3.6 p40, Fig 4.4 p69).
