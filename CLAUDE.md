@@ -35,9 +35,14 @@ External Python dep. Issues filed against it for missing/slow APIs: #132 (`merge
 
 ## Test + run
 
+A fresh container has no numpy/scipy/chilmesh/pytest, and `chilmesh` is not on
+PyPI — it must be editable-installed from the sibling `../CHILmesh` checkout.
+`scripts/dev_setup.sh` provisions the `pytest tests/` gate idempotently:
+
 ```
-pip install -e .              # from repo root (src-layout)
-pytest -q                     # 79 tests, ~40s
+bash scripts/dev_setup.sh         # venv + editable chilmesh + quadmesh[dev]
+. .venv/bin/activate
+pytest tests/                     # 87 tests, ~20s
 python -m quadmesh.cli <input.14> -o <out.14>
 ```
 
