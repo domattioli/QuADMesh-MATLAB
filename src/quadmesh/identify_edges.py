@@ -1,8 +1,10 @@
 """Identify interior edges to remove in a layer, merging tri pairs to quads.
 
 Port of MATLAB ``identifyEdgesFun_v2``. Walks each layer's outer-vertex path
-and flags every-other interior edge for removal so the two tris sharing it
-can be merged into a quad.
+and flags interior edges for removal so the two tris sharing each flagged edge
+can be merged into a quad. At each path vertex, all interior edges between the
+up- and down-path boundary edges are taken; elem/edge flagging prevents any
+triangle from being merged twice.
 
 Outputs go to the caller (typically the tri2quad sweep), which then performs
 the merges and routes remaining tris through edge-insertion/bisection/removal.
@@ -55,7 +57,7 @@ def identify_edges_in_layer(domain: CHILmesh, layer_idx: int) -> LayerEdgeSelect
         3. Filter boundary edges of sub-mesh to outer ring (both endpoints in OV).
         4. Rotate each path to start at a "corner" (vert with only one elem).
         5. Walk each path; at each vert, sort incident edges from up-path to
-           down-path and flag every other interior edge for removal — skipping
+           down-path and flag all interior edges for removal — skipping
            already-flagged edges or elems whose neighbour was already merged.
     """
     layers = domain.layers
@@ -73,12 +75,11 @@ def identify_edges_in_layer(domain: CHILmesh, layer_idx: int) -> LayerEdgeSelect
         )
 
     # Sub-mesh defined over layer's elements (uses parent's points list).
-    # Skip skeletonization (irrelevant for sub-region) but build adjacencies
-    # via the public CHILmesh ctor flag (CHILmesh #134 / QuADMesh #15).
+    # Pass domain.points directly (read-only in sub_mesh) to avoid a large copy.
     sub_conn = domain.connectivity_list[elem_ids]
     sub_mesh = CHILmesh(
         sub_conn,
-        domain.points.copy(),
+        domain.points,
         compute_layers=False,
         compute_adjacencies=True,
     )
@@ -92,42 +93,48 @@ def identify_edges_in_layer(domain: CHILmesh, layer_idx: int) -> LayerEdgeSelect
     # layer triangles only arises where the layer self-intersects, so it is the
     # seam between the two bordering strips. Forbidding merges across it keeps the
     # two strips "invisible" to each other (QuADMesh #31, thesis Figure 4.1).
-    iv_set = set(int(v) for v in iv_global)
+    iv_arr = np.asarray(iv_global, dtype=int)
     edge2elem_all = sub_mesh.adjacencies["Edge2Elem"]
     all_e2v = sub_mesh.edge2vert(np.arange(sub_mesh.n_edges))
-    flagged_mask = np.zeros(sub_mesh.n_edges, dtype=bool)
-    flagged_pairs: List[tuple] = []
-    for eid in range(sub_mesh.n_edges):
-        u, v = int(all_e2v[eid, 0]), int(all_e2v[eid, 1])
-        if u not in iv_set or v not in iv_set:
-            continue
-        pair = edge2elem_all[eid]
-        if int(pair[0]) < 0 or int(pair[1]) < 0:
-            continue  # boundary IV-IV edge (inner ring) — not a fold seam
-        flagged_mask[eid] = True
-        flagged_pairs.append((min(u, v), max(u, v)))
+
+    # Vectorized: mark edges whose both endpoints are inner vertices (fold seams).
+    max_vid = int(all_e2v.max()) + 1 if all_e2v.size else 0
+    iv_mask_arr = np.zeros(max_vid, dtype=bool)
+    iv_mask_arr[iv_arr] = True
+    both_iv = iv_mask_arr[all_e2v[:, 0]] & iv_mask_arr[all_e2v[:, 1]]
+
+    e2e_arr = np.asarray(edge2elem_all)
+    both_elems_valid = (e2e_arr[:, 0] >= 0) & (e2e_arr[:, 1] >= 0)
+    flagged_mask = both_iv & both_elems_valid
+
     flagged_edge_ids = np.where(flagged_mask)[0].astype(int)
+    flagged_pairs: List[tuple] = [
+        (int(np.minimum(all_e2v[eid, 0], all_e2v[eid, 1])),
+         int(np.maximum(all_e2v[eid, 0], all_e2v[eid, 1])))
+        for eid in flagged_edge_ids
+    ]
 
     # Outer-vertex paths in parent indexing (chilmesh helper already uses parent IDs).
     paths = paths_on_outer_vertices(domain, layer_idx)
 
     # Rotate each path so it starts at a vertex with only one layer-element attached
     # (an outer corner), matching the MATLAB heuristic.
+    # Pre-build per-vertex layer-element count via bincount (O(n_elems × cols)).
+    n_verts_total = domain.points.shape[0]
+    layer_conn = domain.connectivity_list[elem_ids]
+    flat = layer_conn.ravel().astype(int)
+    flat = flat[flat >= 0]  # drop padding
+    vert_layer_count = np.bincount(flat, minlength=n_verts_total)
+
     rotated_paths: List[np.ndarray] = []
     for path in paths:
         verts = np.asarray(path, dtype=int)
         if verts.size <= 1:
             rotated_paths.append(verts)
             continue
-        # Drop closing duplicate if present.
         if verts[0] == verts[-1]:
             verts = verts[:-1]
-        # Count layer-elems incident to each vert.
-        counts = np.array(
-            [len(set(domain.get_vertex_elements(int(v))) & set(elem_ids.tolist()))
-             for v in verts],
-            dtype=int,
-        )
+        counts = vert_layer_count[verts]
         corner = np.where(counts == 1)[0]
         if corner.size > 0:
             i = int(corner[0])
@@ -138,11 +145,10 @@ def identify_edges_in_layer(domain: CHILmesh, layer_idx: int) -> LayerEdgeSelect
     b_edges = sub_mesh.boundary_edges()
     b_e2v = sub_mesh.edge2vert(b_edges)
 
-    ov_set = set(int(v) for v in ov_global)
-    keep_mask = np.array(
-        [(int(u) in ov_set) and (int(v) in ov_set) for u, v in b_e2v],
-        dtype=bool,
-    )
+    ov_arr = np.asarray(ov_global, dtype=int)
+    ov_mask_arr = np.zeros(n_verts_total, dtype=bool)
+    ov_mask_arr[ov_arr] = True
+    keep_mask = ov_mask_arr[b_e2v[:, 0]] & ov_mask_arr[b_e2v[:, 1]]
     b_edges = b_edges[keep_mask]
     b_e2v = b_e2v[keep_mask]
 
@@ -155,7 +161,9 @@ def identify_edges_in_layer(domain: CHILmesh, layer_idx: int) -> LayerEdgeSelect
     elem_used = np.zeros(sub_mesh.n_elems, dtype=bool)
     removed: List[int] = []
 
-    b_edge_set = set(int(e) for e in b_edges)
+    b_edge_bool = np.zeros(n_sub_edges, dtype=bool)
+    if b_edges.size:
+        b_edge_bool[b_edges[b_edges < n_sub_edges]] = True
 
     for path in rotated_paths:
         if path.size < 2:
@@ -192,15 +200,19 @@ def identify_edges_in_layer(domain: CHILmesh, layer_idx: int) -> LayerEdgeSelect
             if idown <= 1:
                 up_edge = down_edge
                 continue
-            # Interior edges between up and down (exclusive).
+            # MATLAB idownEdgeID==2 reversal (identifyEdgesFun_v2.m:86-88): when a
+            # single interior edge sits between up and down, flip positions [1:] so
+            # it lands at the first take position consistently.
+            if idown == 2:
+                ordered = np.concatenate([ordered[:1], ordered[1:][::-1]])
+                idown = int(np.where(ordered == down_edge)[0][0])
+            # Interior edges between up and down (exclusive). Take ALL of them
+            # (identifyEdgesFun_v2.m:108-121, `for iEdge=2:totalNumEdges-1`); the
+            # elem/edge flagging below prevents double-merge, so no every-other skip.
             interior = ordered[1:idown]
-            # Every other one, starting at index 0 of interior — matches the
-            # MATLAB "skip up, take, skip, take..." pattern.
-            for j, eid in enumerate(interior):
-                if j % 2 == 1:
-                    continue
+            for eid in interior:
                 eid_i = int(eid)
-                if edge_used[eid_i] or eid_i in b_edge_set:
+                if edge_used[eid_i] or b_edge_bool[eid_i]:
                     continue
                 if flagged_mask[eid_i]:
                     continue  # never merge across a fold seam (QuADMesh #31)

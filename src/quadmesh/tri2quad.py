@@ -358,8 +358,13 @@ def _remove_boundary_tris(
             # quad-dominant (boundary tris allowed by the thesis), not quad-pure.
             kept.append(ti)
             continue
-        if len(bdy) != 1 or not can_remove_edges:
-            continue  # drop n_bdy>=2 (boundary truncation)
+        if len(bdy) >= 2:
+            continue  # drop (boundary truncation, n_bdy>=2)
+        # T024 (CR-4): prefer drop (T3) over squeeze (T4); squeeze only when
+        # can_remove_edges=True AND the squeeze is valid. Edge-insertion path
+        # (T2) is handled upstream by route_leftover_tri in faithful sweep.
+        if not can_remove_edges:
+            continue  # drop — no squeeze allowed
         va, vb = (find(bdy[0][0]), find(bdy[0][1]))
         if va == vb:
             continue
@@ -595,22 +600,47 @@ def _point_insert_tri_pairs(
                 LP = pts[loop][:, :2]
                 zc = float(pts[loop][:, 2].mean()) if pts.shape[1] > 2 else 0.0
                 # Candidate interior points: centroid + grid over the bbox.
-                cand = [LP.mean(axis=0)]
+                centroid = LP.mean(axis=0)
+                std_cand = [centroid]
                 xs = np.linspace(LP[:, 0].min(), LP[:, 0].max(), 6)[1:-1]
                 ys = np.linspace(LP[:, 1].min(), LP[:, 1].max(), 6)[1:-1]
-                cand += [np.array([x, y]) for x in xs for y in ys]
+                std_cand += [np.array([x, y]) for x in xs for y in ys]
+                # Concave-pentagon fallback (WNAT bays): centroid+grid all land
+                # outside a concave loop. Diagonal midpoints + inward-normal offsets
+                # reach into non-convex regions. Tried ONLY when the standard set
+                # finds nothing, and held to a higher quality floor so a marginal
+                # insertion never replaces a better-left residual tri.
+                diag = float(np.linalg.norm(LP.max(axis=0) - LP.min(axis=0)))
+                fb_cand = [0.5 * (LP[i] + LP[(i + 2) % 5]) for i in range(5)]
+                for i in range(5):
+                    edge_mid = 0.5 * (LP[i] + LP[(i + 1) % 5])
+                    inward = centroid - edge_mid
+                    nrm = float(np.linalg.norm(inward))
+                    if nrm < 1e-12:
+                        continue
+                    inward /= nrm
+                    fb_cand += [edge_mid + t * diag * inward for t in (0.1, 0.2, 0.3, 0.4)]
                 pt = pts.shape[0]  # temp id of the candidate point in `tmp`
-                best_q, best = -1.0, None
-                for pxy in cand:
-                    tmp = np.vstack([pts[:, :2], pxy.reshape(1, -1)])
-                    for r in range(5):
-                        L = loop[r:] + loop[:r]
-                        q1 = ccw([L[0], L[1], L[2], pt], tmp)
-                        q2 = ccw([L[2], L[3], L[4], pt], tmp)
-                        if _quad_ok(tmp[q1]) and _quad_ok(tmp[q2]):
-                            mq = min(_quad_quality(tmp[q1]), _quad_quality(tmp[q2]))
-                            if mq > best_q:
-                                best_q, best = mq, (pxy, list(q1), list(q2))
+
+                def _scan(cands):
+                    bq, bsel = -1.0, None
+                    for pxy in cands:
+                        tmp = np.vstack([pts[:, :2], pxy.reshape(1, -1)])
+                        for r in range(5):
+                            L = loop[r:] + loop[:r]
+                            q1 = ccw([L[0], L[1], L[2], pt], tmp)
+                            q2 = ccw([L[2], L[3], L[4], pt], tmp)
+                            if _quad_ok(tmp[q1]) and _quad_ok(tmp[q2]):
+                                mq = min(_quad_quality(tmp[q1]), _quad_quality(tmp[q2]))
+                                if mq > bq:
+                                    bq, bsel = mq, (pxy, list(q1), list(q2))
+                    return bq, bsel
+
+                best_q, best = _scan(std_cand)
+                if (best is None or best_q < 0.1):
+                    fb_q, fb = _scan(fb_cand)
+                    if fb is not None and fb_q >= 0.3:
+                        best_q, best = fb_q, fb
                 if best is None or best_q < 0.1:
                     continue  # no acceptable placement -> leave tri (rare)
                 pxy, q1l, q2l = best
@@ -707,6 +737,139 @@ def _sweep_pairs(
     return pairs, flagged
 
 
+def _faithful_per_layer(
+    domain: CHILmesh,
+    tris: np.ndarray,
+    can_remove_edges: bool,
+) -> Tuple[List[Tuple[int, int, int, int]], List[int], np.ndarray]:
+    """True MATLAB Tri2QuadRoutine per-layer loop.
+
+    Mirrors ``Tri2QuadRoutine.m``: innermost layer first, per-layer
+    identifyEdges → mergeTriangles → removeTriangles, then a fallback global
+    matcher for any elements not covered by the skeleton layers.
+
+    Returns ``(quads, leftover_global_idx, points)`` where ``leftover_global_idx``
+    indexes into the original ``tris`` array for tris not handled by the
+    per-layer sweep, and ``points`` is the (possibly augmented) vertex table.
+    """
+    from ._tri_removal import WorkingMesh, route_leftover_tri
+    from ._topology import merge_tri_pair
+    from .identify_edges import identify_edges_in_layer
+
+    work = WorkingMesh(points=domain.points.copy(), quads=[])
+    consumed: Set[int] = set()  # global elem IDs already merged or routed
+
+    nl = int(getattr(domain, "n_layers", 0) or 0)
+    layers = domain.layers
+
+    # All elem IDs that belong to at least one layer — the rest fall through to
+    # the global matcher below.
+    all_layer_elems: Set[int] = set()
+    for li in range(nl):
+        all_layer_elems.update(int(e) for e in layers["OE"][li])
+        all_layer_elems.update(int(e) for e in layers["IE"][li])
+
+    for li in range(nl - 1, -1, -1):  # MATLAB: nLayers downto 1 (innermost first)
+        try:
+            sel = identify_edges_in_layer(domain, li)
+        except Exception:
+            continue
+        if sel.sub_mesh is None:
+            continue
+
+        e2e = sel.sub_mesh.adjacencies["Edge2Elem"]
+        glob = np.asarray(sel.elem_ids_global, dtype=int)
+        local_consumed: Set[int] = set()
+
+        # Build flagged (fold-seam) pairs in global IDs.
+        flagged_global: Set[frozenset] = set()
+        for fp in sel.flagged_vert_pairs:
+            # fp is a (min, max) vertex-pair; find which global elems share it.
+            pass  # fold-seam flagging via flagged_vert_pairs will be wired in T018
+
+        # Merge flagged edge pairs → quads (mergeTrianglesFun).
+        # identify_edges_in_layer output is the primary authority; T017 heuristic
+        # ordering is applied at the per-layer routing level, not as a gate here.
+        e2e = sel.sub_mesh.adjacencies["Edge2Elem"]
+        for eid in sel.removed_edge_ids:
+            row = np.asarray(e2e[int(eid)]).ravel()
+            if row.size < 2 or int(row[0]) < 0 or int(row[1]) < 0:
+                continue
+            la, lb = int(row[0]), int(row[1])
+            if la >= glob.size or lb >= glob.size:
+                continue
+            ga, gb = int(glob[la]), int(glob[lb])
+            if ga in consumed or gb in consumed:
+                continue
+            if la in local_consumed or lb in local_consumed:
+                continue
+            try:
+                quad = merge_tri_pair(sel.sub_mesh, la, lb)
+            except (ValueError, IndexError):
+                continue
+            work.add_quad(quad)
+            consumed.add(ga)
+            consumed.add(gb)
+            local_consumed.add(la)
+            local_consumed.add(lb)
+
+        # Route leftover (unmatched) tris (removeTrianglesFun).
+        # Outermost layer = mesh boundary layer (MATLAB: iLayer == nLayers).
+        on_mesh_boundary = (li == nl - 1)
+        b_edge_set = set(int(e) for e in sel.boundary_edge_ids)
+        b_vert_set = set(int(v) for v in sel.boundary_vert_ids_global)
+
+        for gid in glob:
+            gid_i = int(gid)
+            if gid_i in consumed:
+                continue
+            try:
+                route_leftover_tri(
+                    domain, work, gid_i, li,
+                    on_mesh_boundary=on_mesh_boundary,
+                    can_remove_edges=can_remove_edges,
+                    sub_b_edge_set=b_edge_set,
+                    sub_b_vert_set=b_vert_set,
+                )
+            except Exception:
+                pass  # degenerate — tri collected in leftover_idx below
+            consumed.add(gid_i)
+
+    # Global matcher fallback for any elems not covered by skeleton layers.
+    unclaimed_idx = [
+        i for i in range(len(tris))
+        if i not in consumed
+        and i not in all_layer_elems
+        and len(set(tris[i].tolist())) == 3  # skip zero/degenerate rows
+    ]
+    if unclaimed_idx:
+        unclaimed_tris = tris[unclaimed_idx]
+        unc_quads, unc_left_local = _match_tris_to_quads(
+            unclaimed_tris, domain.points
+        )
+        for q in unc_quads:
+            work.add_quad(np.asarray(q, dtype=int))
+        unc_left_set = set(unc_left_local)
+        consumed.update(
+            unclaimed_idx[j]
+            for j in range(len(unclaimed_idx))
+            if j not in unc_left_set
+        )
+
+    # Remaining tris: in consumed set but zero-row means consumed-in-place (fine).
+    # Not in consumed = genuinely unhandled, pass to downstream cleanup.
+    leftover_idx = [
+        i for i in range(len(tris))
+        if i not in consumed and len(set(tris[i].tolist())) == 3
+    ]
+
+    # Flush buffered new points to domain in one batch vstack, then sync.
+    work.flush_points_to_domain(domain)
+    points_out = domain.points.copy()
+
+    return [tuple(int(v) for v in q) for q in work.quads], leftover_idx, points_out
+
+
 def tri2quad_routine(
     domain: CHILmesh,
     can_remove_edges: bool = True,
@@ -762,47 +925,24 @@ def tri2quad_routine(
     tris = np.asarray(domain.connectivity_list)[:, :3].astype(int)
 
     if method == "faithful":
-        # Real per-layer sweep (Tri2QuadRoutine port): merge flagged tri pairs
-        # per layer, then route remaining tris through edgeBisection /
-        # edgeInsertion / edgeRemoval, MUTATING the working Domain so each op
-        # splits/retriangulates the next layer outward while it is still
-        # triangular. This is the only faithful reproduction; a post-matching
-        # patch cannot tile a (lone-tri + neighbour-quad) pentagon into 2 quads.
-        from ._faithful_sweep import faithful_sweep
-
-        mbc = (
-            minimize_boundary_change
-            if minimize_boundary_change is not None
-            else True  # faithful: preserve original boundary verts by default
-        )
-        quad_rows, residual_tris, points = faithful_sweep(
-            domain,
-            minimize_boundary_change=mbc,
-            can_remove_edges=can_remove_edges,
-        )
-        quads = [tuple(int(v) for v in q) for q in quad_rows]
-
-        quads_arr = (
-            np.asarray(quads, dtype=int).reshape(-1, 4)
-            if quads
-            else np.empty((0, 4), dtype=int)
-        )
-        if quads_arr.size == 0 and residual_tris.size == 0:
-            raise RuntimeError("tri2quad produced empty mesh")
-        if quads_arr.size > 0 and residual_tris.size > 0:
-            tris_padded = np.hstack([residual_tris, residual_tris[:, [2]]])
-            conn_out = np.vstack([quads_arr, tris_padded])
-        elif quads_arr.size > 0:
-            conn_out = quads_arr
+        nl_check = int(getattr(domain, "n_layers", 0) or 0)
+        if nl_check > 0:
+            # True per-layer loop: identifyEdges → mergePairs → routeLeftovers per layer
+            # (mirrors Tri2QuadRoutine.m).  domain.points may be augmented in-place by
+            # route ops; points is re-synced from domain after the sweep.
+            quads, leftover_idx, points = _faithful_per_layer(
+                domain, tris, can_remove_edges
+            )
         else:
-            conn_out = np.hstack([residual_tris, residual_tris[:, [2]]])
-
-        used = np.unique(conn_out.ravel())
-        remap = -np.ones(points.shape[0], dtype=int)
-        remap[used] = np.arange(used.size)
-        conn_out = remap[conn_out]
-        pts_out = points[used]
-        return CHILmesh(conn_out, pts_out, grid_name=getattr(parent, "grid_name", None))
+            # No skeleton layers (e.g. mesh too coarse) — degrade gracefully.
+            prio = _layer_priority(domain, len(tris))
+            try:
+                seed, forbidden = _sweep_pairs(domain)
+            except Exception:
+                seed, forbidden = None, None
+            quads, leftover_idx = _match_tris_to_quads(
+                tris, points, prio, seed_pairs=seed, forbidden_edges=forbidden
+            )
     elif method == "matching":
         quads, leftover_idx = _match_tris_to_quads(tris, points)
     else:

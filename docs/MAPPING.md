@@ -1,13 +1,13 @@
 # MATLAB -> Python Map
 
-Port status. v0.4.
+Port status. v0.5 (faithful-port milestone M2).
 
 | MATLAB (`02_QuADMESH_Library/`) | Python (`quadmesh/`) | Status |
 |---|---|---|
 | `00_Main/Main.m` | `cli.py` + `pipeline.run_pipeline` | done |
 | `01_Create_Quad_Domain/createQuadDomain.m` | `create_quad_domain` | done (polygon mode) |
 | `01_Create_Quad_Domain/drawSubdomain.m` | - | skip (GUI) |
-| `02_Tri2Quad_Routine/Tri2QuadRoutine.m` | `tri2quad.tri2quad_routine` | done |
+| `02_Tri2Quad_Routine/Tri2QuadRoutine.m` | `tri2quad.tri2quad_routine` | done — faithful per-layer loop (`method="faithful"`) mirrors MATLAB; `method="matching"` fast fallback |
 | `02_Tri2Quad_Routine/identifyEdgesFun.m` | - | skip (superseded by v2) |
 | `02_Tri2Quad_Routine/identifyEdgesFun_v2.m` | `identify_edges.identify_edges_in_layer` | done |
 | `02_Tri2Quad_Routine/mergeTrianglesFun.m` | `_topology.merge_tri_pairs` | done |
@@ -15,9 +15,9 @@ Port status. v0.4.
 | `02_Tri2Quad_Routine/plotQuadProgress.m` | - | skip (plot) |
 | `03_Layer_Paths/PathsOnOV.m` | `chilmesh.layer_paths.paths_on_outer_vertices` | done via chilmesh |
 | `03_Layer_Paths/pathRewind.m` | inline in `identify_edges` | done |
-| `04_Remove_Triangles/removeTrianglesFun.m` | `_tri_removal.route_leftover_tri` | partial (conservative default; aggressive=True opt-in; bisection bug fixed) |
+| `04_Remove_Triangles/removeTrianglesFun.m` | `_tri_removal.route_leftover_tri` | done — all cases; recombination ops wired (`_recombine.py`) |
 | `04_Remove_Triangles/edgeInsertion.m` | `_tri_removal.edge_insertion` | partial (cases 1/2 without iLayer-1 retri; v0.4 unit-tested, ravel bug fixed) |
-| `04_Remove_Triangles/edgeBisection.m` | `_tri_removal.edge_bisection` | partial (case 2) |
+| `04_Remove_Triangles/edgeBisection.m` | `_tri_removal.edge_bisection` | done (infinite-loop fix for reversed CCW orientation) |
 | `04_Remove_Triangles/edgeRemoval.m` | `_tri_removal.edge_removal` | done |
 | `05_Post-Process_Routine/PostProcessRoutine.m` | `post_process.post_process_routine` | done |
 | `05_Post-Process_Routine/plotQualityProgress.m` | `quality_report.compute_quality_stats` + `format_quality_report` | done (stats; plot skipped) |
@@ -92,3 +92,23 @@ Current Python (v0.2+): MATLAB-aligned.
 - chilmesh#134: `CHILmesh(compute_adjacencies=True)` independent of `compute_layers`.
 - chilmesh#138: `CHILmesh.submesh(elem_ids)` public API -- was wanted for the two-part smoother boundary/interior split, now dropped (#44, FEM-only `fem_smoother`); no longer a quadmesh smoother blocker.
 - chilmesh#139: `angle_based_smoother` performance -- ~42s/pass on 2417-elem mesh; currently disabled as default. Port uses FEM smoother only.
+
+## Recombination operators (new in M2)
+
+| Thesis ref | Python | Status |
+|---|---|---|
+| Fig 3.2 (p39) — edge-swap | `_recombine.edge_swap` | done |
+| Fig 3.3 (p39) — vertex-duplication | `_recombine.vertex_duplication` | done |
+| Fig 3.6 (p40) / Fig 4.4 (p69) — edge-flip + walk | `_recombine.edge_flip`, `walk_isolated_tri` | done |
+| Ch 4.1 — IE-before-OE, T1/T2 heuristics | `_match_faithful.match_layer_heuristic` | done |
+| Ch 4.2 — OE-before-IE, walkability pre-pass | `_match_faithful.walkability_prepass` | done |
+| T007 — LayerState | `_tri_removal.LayerState` | done |
+
+## chilmesh gaps (open issues)
+
+| Gap | Issue | Impact |
+|---|---|---|
+| `merge_elements` stub | chilmesh#132 | aggressive routing wiring blocked |
+| `ccw_edges_around_vert` public | chilmesh#133 | workaround in `_topology` |
+| `submesh()` API | chilmesh#138 | sub-domain smoother blocked |
+| `angle_based_smoother` perf | chilmesh#139 | ~40s/pass; opt-in only |

@@ -111,7 +111,7 @@ def _fix_bowties(conn: np.ndarray, pts: np.ndarray) -> tuple[np.ndarray, int]:
     n_fixed = 0
     for ei in range(conn.shape[0]):
         r = conn[ei]
-        if r[0] == r[3]:
+        if len(r) < 4 or r[0] == r[3]:
             continue
         verts = [int(r[k]) for k in range(4)]
         if len(set(verts)) < 4:
