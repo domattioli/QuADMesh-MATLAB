@@ -3,6 +3,11 @@
 **Date:** 2026-05-26
 **Branch:** `python-optimized`
 **PR:** [#45](https://github.com/domattioli/QuADMESH/pull/45) (draft) — head `87b48f4`
+# Session 008 — faithful per-layer tri2quad sweep (WIP) + demo layer-sequence fix
+
+**Date:** 2026-05-24
+**Branch:** `faithful-tri2quad-sweep` (cut from `daily-issue-fixing`)
+**PR:** [#37](https://github.com/domattioli/QuADMESH/pull/37) (draft) — head `b2fe8ab`
 **Model:** claude-opus-4-7
 
 ## What changed

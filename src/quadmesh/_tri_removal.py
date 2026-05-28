@@ -145,8 +145,8 @@ def edge_bisection(domain: CHILmesh, work: WorkingMesh, tri_elem_id: int,
     """Bisect one tri edge with a new midpoint. Tri becomes a quad.
 
     Returns the new vertex ID. The companion retriangulation of the opposite
-    tri (MATLAB case 2) is performed by the caller for the layer-interior case
-    via ``_split_opposing_tri`` if the opposing elem is given.
+    tri (MATLAB case 2) is performed by the caller (``route_leftover_tri``, the
+    layer-interior branch) via ``_split_opposing_tri``.
     """
     edge_ids = domain.elem2edge(tri_elem_id).ravel().astype(int)
     eid = int(edge_ids[bdy_edge_idx_in_tri])
@@ -157,7 +157,7 @@ def edge_bisection(domain: CHILmesh, work: WorkingMesh, tri_elem_id: int,
     # np_id only used in work.quads connectivity; domain.points[np_id] never
     # read back so no need to grow domain.points here.
 
-    # Build new quad: rotate tri conn so v_a, v_b are adjacent, then insert np_id between.
+    # Build new quad by slotting np_id between the (v_a, v_b) edge in conn.
     conn = domain.connectivity_list[tri_elem_id, :3].astype(int)
     # Find positions of (v_a, v_b) in conn. Cap at 3 rolls (one full cycle); if the
     # edge appears reversed (ib → ia CCW) swap v_a/v_b so the insertion is consistent.
@@ -178,12 +178,73 @@ def edge_bisection(domain: CHILmesh, work: WorkingMesh, tri_elem_id: int,
     # np_id between v_a and v_b: [..., v_a, np_id, v_b, ...].
     # Build by walking conn and slotting np_id in between the v_a,v_b pair.
     ia = int(np.where(conn == v_a)[0][0])
+    if conn[(ia + 1) % 3] != v_b:
+        v_a, v_b = v_b, v_a
+        ia = int(np.where(conn == v_a)[0][0])
     quad = np.array([conn[ia], np_id, conn[(ia + 1) % 3], conn[(ia + 2) % 3]], dtype=int)
     work.add_quad(quad)
 
     # Flag tri as consumed by zeroing its connectivity (caller drops zero rows).
     domain.connectivity_list[tri_elem_id, :] = 0
     return np_id
+
+
+def _ccw_tri(tri: np.ndarray, points: np.ndarray) -> np.ndarray:
+    """Return ``tri`` reordered to positive (CCW) signed area."""
+    p = points[tri, :2]
+    area = 0.5 * (
+        (p[1, 0] - p[0, 0]) * (p[2, 1] - p[0, 1])
+        - (p[2, 0] - p[0, 0]) * (p[1, 1] - p[0, 1])
+    )
+    return tri[::-1].copy() if area < 0 else tri
+
+
+def _split_opposing_tri(domain: CHILmesh, edge_id: int, np_id: int,
+                         consumed_tri_id: int) -> Optional[int]:
+    """Split the iLayer-1 tri sharing ``edge_id`` at midpoint ``np_id``.
+
+    MATLAB ``edgeBisection`` Case 2 (``edgeBisection.m:47-79``). When
+    ``edge_bisection`` bisects an interior layer-boundary edge, the new midpoint
+    ``np_id`` lands on that edge — leaving a hanging node on the neighbouring
+    tri in iLayer-1. That neighbour must be re-triangulated so the working tri
+    domain stays conforming.
+
+    Because ``np_id`` lies *on* the shared edge, the only valid split is the
+    neighbour's apex joined to ``np_id`` — exactly what MATLAB's
+    ``delaunayTriangulation([opp_conn, np_id])`` yields once its degenerate
+    collinear tri is dropped, so we build the two tris directly (no Delaunay).
+
+    Returns the appended element id, or ``None`` if ``edge_id`` has no opposite
+    tri (a true mesh-boundary edge) or the neighbour is not a clean triangle.
+    """
+    pair = domain.edge2elem(edge_id).ravel().astype(int).tolist()
+    opp = [e for e in pair if e != consumed_tri_id and e >= 0]
+    if not opp:
+        return None
+    opp_id = opp[0]
+
+    opp_conn = domain.connectivity_list[opp_id, :3].astype(int)
+    v_a, v_b = domain.edge2vert(edge_id).ravel().astype(int).tolist()
+    apex = [v for v in opp_conn.tolist() if v != v_a and v != v_b]
+    if len(apex) != 1:
+        return None  # opp already consumed / not a tri on this edge.
+    apex = apex[0]
+
+    tri1 = _ccw_tri(np.array([apex, v_a, np_id], dtype=int), domain.points)
+    tri2 = _ccw_tri(np.array([apex, np_id, v_b], dtype=int), domain.points)
+
+    width = domain.connectivity_list.shape[1]
+    domain.connectivity_list[opp_id, :3] = tri1
+    if width > 3:  # keep padded-triangle convention (repeat last vert)
+        domain.connectivity_list[opp_id, 3:] = tri1[-1]
+
+    new_id = domain.connectivity_list.shape[0]
+    row = np.empty((1, width), dtype=domain.connectivity_list.dtype)
+    row[0, :3] = tri2
+    if width > 3:
+        row[0, 3:] = tri2[-1]
+    domain.connectivity_list = np.vstack([domain.connectivity_list, row])
+    return new_id
 
 
 def edge_insertion(domain: CHILmesh, work: WorkingMesh, tri_elem_id: int,
@@ -260,7 +321,13 @@ def route_leftover_tri(
     bdy_verts_in_tri = [int(v) for v in conn if int(v) in sub_b_vert_set]
 
     if not on_mesh_boundary and n_bdy >= 1:
-        edge_bisection(domain, work, tri_elem_id, bdy_edges_local[0])
+        # MATLAB edgeBisection Case 2: bisect the layer-interior edge, then
+        # re-triangulate the iLayer-1 neighbour at the new midpoint so the
+        # working tri domain stays conforming (edgeBisection.m:47-79).
+        eid = int(edge_ids[bdy_edges_local[0]])
+        np_id = edge_bisection(domain, work, tri_elem_id, bdy_edges_local[0])
+        if np_id is not None:
+            _split_opposing_tri(domain, eid, np_id, tri_elem_id)
     elif on_mesh_boundary and n_bdy == 0:
         if bdy_verts_in_tri:
             edge_insertion(domain, work, tri_elem_id, bdy_verts_in_tri[0])
