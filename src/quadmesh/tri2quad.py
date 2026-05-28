@@ -762,18 +762,47 @@ def tri2quad_routine(
     tris = np.asarray(domain.connectivity_list)[:, :3].astype(int)
 
     if method == "faithful":
-        prio = _layer_priority(domain, len(tris))
-        # Structured every-other-edge sweep proposes layer-aligned pairs; the
-        # matcher seeds on them, then greedy + augmenting fixup close the residue
-        # (zero interior preserved). Sweep failures (no layers) degrade to pure
-        # greedy. NB: quality_aware=True tried but regressed the full pipeline.
-        try:
-            seed, forbidden = _sweep_pairs(domain)
-        except Exception:
-            seed, forbidden = None, None
-        quads, leftover_idx = _match_tris_to_quads(
-            tris, points, prio, seed_pairs=seed, forbidden_edges=forbidden
+        # Real per-layer sweep (Tri2QuadRoutine port): merge flagged tri pairs
+        # per layer, then route remaining tris through edgeBisection /
+        # edgeInsertion / edgeRemoval, MUTATING the working Domain so each op
+        # splits/retriangulates the next layer outward while it is still
+        # triangular. This is the only faithful reproduction; a post-matching
+        # patch cannot tile a (lone-tri + neighbour-quad) pentagon into 2 quads.
+        from ._faithful_sweep import faithful_sweep
+
+        mbc = (
+            minimize_boundary_change
+            if minimize_boundary_change is not None
+            else True  # faithful: preserve original boundary verts by default
         )
+        quad_rows, residual_tris, points = faithful_sweep(
+            domain,
+            minimize_boundary_change=mbc,
+            can_remove_edges=can_remove_edges,
+        )
+        quads = [tuple(int(v) for v in q) for q in quad_rows]
+
+        quads_arr = (
+            np.asarray(quads, dtype=int).reshape(-1, 4)
+            if quads
+            else np.empty((0, 4), dtype=int)
+        )
+        if quads_arr.size == 0 and residual_tris.size == 0:
+            raise RuntimeError("tri2quad produced empty mesh")
+        if quads_arr.size > 0 and residual_tris.size > 0:
+            tris_padded = np.hstack([residual_tris, residual_tris[:, [2]]])
+            conn_out = np.vstack([quads_arr, tris_padded])
+        elif quads_arr.size > 0:
+            conn_out = quads_arr
+        else:
+            conn_out = np.hstack([residual_tris, residual_tris[:, [2]]])
+
+        used = np.unique(conn_out.ravel())
+        remap = -np.ones(points.shape[0], dtype=int)
+        remap[used] = np.arange(used.size)
+        conn_out = remap[conn_out]
+        pts_out = points[used]
+        return CHILmesh(conn_out, pts_out, grid_name=getattr(parent, "grid_name", None))
     elif method == "matching":
         quads, leftover_idx = _match_tris_to_quads(tris, points)
     else:
