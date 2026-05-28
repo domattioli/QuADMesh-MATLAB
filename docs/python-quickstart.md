@@ -23,7 +23,7 @@ pytest          # 25+ tests
 
 ```python
 from chilmesh import CHILmesh
-from quadmesh import tri2quad, post_process, two_part_smoother
+from quadmesh import tri2quad, post_process, fem_smoother
 
 tri = CHILmesh.read_from_fort14("mesh.14")
 quad = tri2quad(tri)
@@ -41,7 +41,7 @@ quadmesh mesh.14 -o out.14 --no-post-process
 ## v0.2 new
 
 - `CleanupBoundaryQuads` shift mode (`can_remove_edges=False`). Move corner inward. Before: no-op. Now: work.
-- `two_part_smoother`. Interleave angle + FEM smooth. Port of MATLAB `twoPartSmoother.m`.
+- `fem_smoother`. FEM direct-solve smoother, n_iter passes. Port of the FEM half of MATLAB `twoPartSmoother.m` (MCSmooth half not ported).
 - 25+ tests.
 
 ## Numbers
