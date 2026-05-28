@@ -12,9 +12,9 @@ Routine lives in `DomI/claude_routine_instructions.md` (private). Textbox payloa
 
 ## Branch rule
 
-All ongoing work goes on `daily-issue-fixing`. Do not push to `master`/`main` directly. Do not push to historical branches (`python-porting-project`, `claude/affectionate-heisenberg-prShD`, `claude/awesome-goodall-cqPYK`, `claude/awesome-goodall-Tbur3`).
+All ongoing work goes on `daily-maintenance`. Do not push to `master`/`main` directly. Do not push to historical branches (`python-porting-project`, `claude/affectionate-heisenberg-prShD`, `claude/awesome-goodall-cqPYK`, `claude/awesome-goodall-Tbur3`).
 
-New session branches discouraged — work directly on `daily-issue-fixing`, PR → `main`. `branch_guard.sh` (DomI plugin) blocks non-allowlisted names.
+New session branches discouraged — work directly on `daily-maintenance`, PR → `main`. `branch_guard.sh` (DomI plugin) blocks non-allowlisted names.
 
 ## Layout
 

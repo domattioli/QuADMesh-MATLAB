@@ -24,7 +24,7 @@ Python pkg `python/quadmesh/`, tests `python/tests/`, golden data `python/tests/
 
 **Purpose**: tooling the rest depends on.
 
-- [ ] T001 Confirm work branch `daily-issue-fixing`; add `faithful` workstream note to `specs/001-matlab-to-python-port/tasks.md` header linking this file.
+- [ ] T001 Confirm work branch `daily-maintenance`; add `faithful` workstream note to `specs/001-matlab-to-python-port/tasks.md` header linking this file.
 - [ ] T002 [P] Add dev deps for the oracle: `scipy` (`.mat` read + 2-pt Delaunay), `pypdf` (thesis text), `poppler-utils` (figure render) — record in `python/pyproject.toml` `[project.optional-dependencies] dev`.
 - [ ] T003 [P] Create `python/tests/golden/` + `python/tests/golden/README.md` (provenance: which oracle source produced each file).
 
