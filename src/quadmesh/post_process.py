@@ -68,7 +68,7 @@ def _balendran_smooth(mesh: "CHILmesh") -> "np.ndarray":
     return new_pts
 
 
-def two_part_smoother(
+def fem_smoother(
     mesh: CHILmesh,
     n_iter: int = 3,
     method: str = "fem",
@@ -84,6 +84,8 @@ def two_part_smoother(
         n_iter: Max FEM passes (stops early once a pass stops improving).
     """
     import numpy as np
+
+    mesh = remove_unused_vertices(mesh)
 
     for _ in range(n_iter):
         before = np.asarray(mesh.points).copy()
