@@ -7,6 +7,7 @@ from .tri2quad import tri2quad_routine as tri2quad
 from .post_process import post_process_routine as post_process, fem_smoother
 from .quality_report import compute_quality_stats, format_quality_report
 from .repair import repair_chilmesh, repair_mesh
+from .mesh_structure import compute_mesh_structure, MeshStructure
 
 __all__ = [
     "tri2quad",
@@ -16,6 +17,8 @@ __all__ = [
     "format_quality_report",
     "repair_mesh",
     "repair_chilmesh",
+    "compute_mesh_structure",
+    "MeshStructure",
     "__version__",
 ]
 
