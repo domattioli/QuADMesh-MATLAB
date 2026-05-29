@@ -1,5 +1,7 @@
 <p align="center">
-  <video src="videos/quadmesh_logo.mp4" autoplay loop muted playsinline width="680"></video>
+  <video src="https://github.com/domattioli/QuADMESH/raw/main/videos/quadmesh_logo.mp4" autoplay loop muted playsinline width="680">
+    <a href="https://github.com/domattioli/QuADMESH/raw/main/videos/quadmesh_logo.mp4">▶ QuADMESH logo animation</a>
+  </video>
 </p>
 
 <h1 align="center">QuADMESH</h1>
