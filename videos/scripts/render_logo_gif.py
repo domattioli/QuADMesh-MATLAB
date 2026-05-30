@@ -3,7 +3,7 @@
 Produces ``videos/quadmesh_logo.gif`` without manim/ffmpeg/chilmesh — pure numpy
 + matplotlib. Mirrors the content, colors, and geometry of ``quadmesh_logo.py``
 (the manim reference), including the 6-spoke annulus, triangle-to-quad morph of
-4 selected pairs, and animated wordmark with letter color morphing.
+4 selected pairs, title, and tagline.
 
 Run:
     python videos/scripts/render_logo_gif.py
@@ -23,12 +23,13 @@ from matplotlib.animation import FuncAnimation, PillowWriter
 from matplotlib.patches import Polygon as MplPolygon
 from matplotlib.collections import PatchCollection
 
+# Colors (from quadmesh_logo.py)
 BG_COLOR = "#0d0d0f"
-ADMESH_COLOR_INITIAL = "#00CC44"
-ADMESH_COLOR_FINAL = "#CC00CC"
+TITLE_COLOR = "#ffd34e"
 EDGE_COLOR = "#e8e8e8"
 TRI_FILL = "#c97b2f"
 QUAD_FILL = "#2e7fcf"
+TAGLINE_COLOR = "#e8e8e8"
 
 OUT = Path(__file__).resolve().parents[1] / "quadmesh_logo.gif"
 
@@ -106,7 +107,7 @@ def merge_triangle_pair(tri1_coords, tri2_coords):
 
 
 def render(out=OUT, hold=16, fps=18):
-    """Render logo animation with wordmark and letter color morphing."""
+    """Render logo animation with frame-hold pattern."""
 
     # Build mesh
     mesh = create_annulus_mesh()
@@ -127,11 +128,11 @@ def render(out=OUT, hold=16, fps=18):
     # Frames: discrete holds for animation stages
     # (stage_name, hold_count)
     stage_specs = [
-        ("mesh_fade_in", hold),
+        ("title_fade_in", hold),
         ("triangles_draw", hold),
         ("morph_tris_fade", hold),
         ("morph_quads_fade", hold),
-        ("qu_fly_in", hold),
+        ("tagline_fade_in", hold),
         ("hold_final", hold),
     ]
 
@@ -149,27 +150,14 @@ def render(out=OUT, hold=16, fps=18):
     ax.set_aspect("equal")
     ax.axis("off")
 
-    # Create ADMESH letter text objects
-    # Letters: A, D, M, E, S, H
-    # Positions: x = -1.125, -0.675, -0.225, 0.225, 0.675, 1.125
-    # y = -2.6 for all
-    admesh_letters = "ADMESH"
-    admesh_x_positions = [-1.125, -0.675, -0.225, 0.225, 0.675, 1.125]
-    admesh_texts = []
-    for letter, x_pos in zip(admesh_letters, admesh_x_positions):
-        text_obj = ax.text(
-            x_pos, -2.6, letter, ha="center", va="center",
-            fontsize=50, fontweight="bold",
-            color=ADMESH_COLOR_INITIAL, alpha=0.0
-        )
-        admesh_texts.append(text_obj)
-
-    # Create "Qu" text object
-    # Starts at x=-6.0 (off-screen left), animates to x=-1.35 (right-aligned before A)
-    qu_text = ax.text(
-        -6.0, -2.6, "Qu", ha="right", va="center",
-        fontsize=50, fontweight="bold",
-        color=ADMESH_COLOR_FINAL, alpha=0.0
+    # Text elements
+    title = ax.text(
+        0, 2.6, "QuADMESH", ha="center", va="center",
+        fontsize=60, fontweight="bold", color=TITLE_COLOR, alpha=0.0
+    )
+    tagline = ax.text(
+        0, -2.6, "triangles in · quads out", ha="center", va="center",
+        fontsize=22, fontstyle="italic", color=TAGLINE_COLOR, alpha=0.0
     )
 
     # Patch collections for triangles and quads
@@ -185,82 +173,41 @@ def render(out=OUT, hold=16, fps=18):
     tri_alphas = np.ones(len(tri_coords))
     quad_alphas = np.zeros(len(quads))
 
-    # Color tracking for ADMESH letters
-    admesh_colors = [ADMESH_COLOR_INITIAL] * 6
-
     def draw(frame):
         stage_name, progress = frame
 
-        # Reset alphas and colors
+        # Reset alphas
         tri_alphas[:] = 1.0
         quad_alphas[:] = 0.0
-        for _i in range(6): admesh_colors[_i] = ADMESH_COLOR_INITIAL
 
-        mesh_alpha = 0.0
-        qu_x = -6.0
-        qu_alpha = 0.0
-
-        if stage_name == "mesh_fade_in":
-            mesh_alpha = progress
-            for text_obj in admesh_texts:
-                text_obj.set_alpha(progress)
-
+        if stage_name == "title_fade_in":
+            title.set_alpha(progress)
         elif stage_name == "triangles_draw":
-            mesh_alpha = 1.0
-            for text_obj in admesh_texts:
-                text_obj.set_alpha(1.0)
-
+            title.set_alpha(1.0)
         elif stage_name == "morph_tris_fade":
-            mesh_alpha = 1.0
-            for text_obj in admesh_texts:
-                text_obj.set_alpha(1.0)
+            title.set_alpha(1.0)
             # Fade out triangles that are being morphed
             for tri1_idx, tri2_idx in quad_tri_indices:
                 tri_alphas[tri1_idx] = 1.0 - progress
                 tri_alphas[tri2_idx] = 1.0 - progress
-
         elif stage_name == "morph_quads_fade":
-            mesh_alpha = 1.0
-            for text_obj in admesh_texts:
-                text_obj.set_alpha(1.0)
+            title.set_alpha(1.0)
             # Fade out remaining morphing tris, fade in quads
             for tri1_idx, tri2_idx in quad_tri_indices:
                 tri_alphas[tri1_idx] = 0.0
                 tri_alphas[tri2_idx] = 0.0
             for i in range(len(quads)):
                 quad_alphas[i] = progress
-
-            # Change letter colors from right to left: H, S, E, M, D, A
-            # Letter index from right: 0=H, 1=S, 2=E, 3=M, 4=D, 5=A
-            # When progress >= i/6, letter i (from right) flips to magenta
-            # Letter position in ADMESH array: A=0, D=1, M=2, E=3, S=4, H=5
-            for letter_idx in range(6):
-                if progress >= letter_idx / 6.0:
-                    # letter_idx from right: 0=H, 1=S, 2=E, 3=M, 4=D, 5=A
-                    # Maps to position: 5, 4, 3, 2, 1, 0
-                    admesh_colors[5 - letter_idx] = ADMESH_COLOR_FINAL
-
-        elif stage_name == "qu_fly_in":
-            mesh_alpha = 1.0
-            for text_obj in admesh_texts:
-                text_obj.set_alpha(1.0)
+        elif stage_name == "tagline_fade_in":
+            title.set_alpha(1.0)
             for i in range(len(quads)):
                 quad_alphas[i] = 1.0
-            for _i in range(6): admesh_colors[_i] = ADMESH_COLOR_FINAL
-
-            # Animate "Qu" x position from -6.0 to -1.35
-            qu_x = -6.0 + 4.65 * progress
-            qu_alpha = 1.0
-
+            tagline.set_alpha(progress)
         else:  # hold_final
-            mesh_alpha = 1.0
-            for text_obj in admesh_texts:
-                text_obj.set_alpha(1.0)
+            title.set_alpha(1.0)
+            tagline.set_alpha(1.0)
             for i in range(len(quads)):
                 quad_alphas[i] = 1.0
-            for _i in range(6): admesh_colors[_i] = ADMESH_COLOR_FINAL
-            qu_x = -1.35
-            qu_alpha = 1.0
 
         # Set triangle colors and alphas
         tri_facecolors = np.array([
@@ -274,15 +221,7 @@ def render(out=OUT, hold=16, fps=18):
         ])
         quad_collection.set_facecolor(quad_facecolors)
 
-        # Update ADMESH letter colors
-        for i, text_obj in enumerate(admesh_texts):
-            text_obj.set_color(admesh_colors[i])
-
-        # Update "Qu" position and alpha
-        qu_text.set_x(qu_x)
-        qu_text.set_alpha(qu_alpha)
-
-        return tri_collection, quad_collection, *admesh_texts, qu_text
+        return tri_collection, quad_collection, title, tagline
 
     anim = FuncAnimation(fig, draw, frames=frames, blit=False)
     anim.save(out, writer=PillowWriter(fps=fps))
