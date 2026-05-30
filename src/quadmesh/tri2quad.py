@@ -737,6 +737,47 @@ def _sweep_pairs(
     return pairs, flagged
 
 
+def fold_bridge_quads(
+    quads: List[List[int]],
+    flagged_edges: Set[Tuple[int, int]],
+) -> List[int]:
+    """Indices of quads that bridge a fold seam (QuADMesh #33).
+
+    A *fold-bridge quad* is a faithful-matched quad whose diagonal (the merged
+    triangles' shared edge) is a **flagged edge** — an interior edge whose both
+    endpoints are inner vertices, marking where a self-folding layer's two
+    bordering strips meet (thesis p39 / Figure 4.1). The faithful matcher
+    forbids these merges (#31); this metric makes the defect class measurable
+    and regression-pinnable rather than relying on a bespoke per-test probe.
+
+    Args:
+        quads: list of 4-vertex quads ``[q0, q1, q2, q3]`` (diagonals are
+            ``(q0, q2)`` and ``(q1, q3)``), as returned by
+            :func:`_match_tris_to_quads`.
+        flagged_edges: set of ``(min, max)`` flagged-edge vertex pairs, as
+            returned by :func:`_sweep_pairs`.
+
+    Returns:
+        Indices into ``quads`` of every quad whose either diagonal is flagged.
+        Empty list ⇒ no fold bridges (the faithful invariant).
+    """
+    offenders: List[int] = []
+    for idx, q in enumerate(quads):
+        d1 = tuple(sorted((q[0], q[2])))
+        d2 = tuple(sorted((q[1], q[3])))
+        if d1 in flagged_edges or d2 in flagged_edges:
+            offenders.append(idx)
+    return offenders
+
+
+def count_fold_bridge_quads(
+    quads: List[List[int]],
+    flagged_edges: Set[Tuple[int, int]],
+) -> int:
+    """Number of fold-bridge quads (see :func:`fold_bridge_quads`)."""
+    return len(fold_bridge_quads(quads, flagged_edges))
+
+
 def _faithful_per_layer(
     domain: CHILmesh,
     tris: np.ndarray,

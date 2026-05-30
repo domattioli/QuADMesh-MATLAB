@@ -15,18 +15,8 @@ from quadmesh.tri2quad import (
     _layer_priority,
     _match_tris_to_quads,
     _sweep_pairs,
+    count_fold_bridge_quads,
 )
-
-
-def _cross_fold_quads(quads, flagged) -> int:
-    """Count quads whose diagonal (the merged tris' shared edge) is flagged."""
-    n = 0
-    for q in quads:
-        d1 = tuple(sorted((q[0], q[2])))
-        d2 = tuple(sorted((q[1], q[3])))
-        if d1 in flagged or d2 in flagged:
-            n += 1
-    return n
 
 
 @pytest.mark.parametrize("fixture_name", ["test_case_1", "test_case_2", "_block_o"])
@@ -42,7 +32,7 @@ def test_faithful_never_merges_across_fold(fixture_name, request):
     quads, _ = _match_tris_to_quads(
         tris, pts, prio, seed_pairs=seed, forbidden_edges=flagged
     )
-    assert _cross_fold_quads(quads, flagged) == 0
+    assert count_fold_bridge_quads(quads, flagged) == 0
 
 
 def test_forbidden_edges_blocks_merge():

@@ -1,5 +1,9 @@
 <p align="center">
-  <video src="videos/quadmesh_logo.mp4" autoplay loop muted playsinline width="680"></video>
+  <img src="videos/quadmesh_logo.gif" alt="QuADMESH logo — triangles in, quads out" width="680">
+</p>
+
+<p align="center">
+  <sub>Higher-fidelity <a href="videos/quadmesh_logo.mp4">mp4</a> · regenerate with <code>python videos/scripts/render_logo_gif.py</code> (matplotlib only, no ffmpeg).</sub>
 </p>
 
 <h1 align="center">QuADMESH</h1>
