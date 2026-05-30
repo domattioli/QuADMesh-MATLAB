@@ -12,8 +12,9 @@ related-but-distinct mesh structures:
   fundamentally distinct from chilmesh layer decomposition. Reserved for future
   research; see specs/004-unified-mesh-structure/spec.md.
 
-- **medial_axis** (not yet implemented): related to skeleton; also reserved for
-  future research per specs/004-unified-mesh-structure/spec.md.
+- **medial_axis** (implemented): Voronoi-of-boundary interior ridges,
+  deterministic approximation; fidelity scales with boundary sample density.
+  See specs/004-unified-mesh-structure/spec.md.
 
 Issue ref: domattioli/QuADMesh#55
 Spec ref: specs/004-unified-mesh-structure/spec.md
@@ -21,6 +22,7 @@ Spec ref: specs/004-unified-mesh-structure/spec.md
 
 from __future__ import annotations
 
+import numpy as np
 from dataclasses import dataclass
 from typing import Optional
 
@@ -31,11 +33,16 @@ VALID_KINDS = ("layers", "skeleton", "medial_axis")
 
 @dataclass
 class MeshStructure:
-    """Selectable mesh structure with kind, layer count, and optional layer state."""
+    """Selectable mesh structure with kind, layer count, and optional layer state.
+
+    For graph kinds (medial_axis), nodes and edges are populated instead of layers.
+    """
 
     kind: str
     n_layers: int
     layers: Optional[LayerState] = None
+    nodes: Optional["np.ndarray"] = None
+    edges: Optional["np.ndarray"] = None
 
 
 def compute_mesh_structure(domain, kind: str = "layers") -> MeshStructure:
@@ -47,12 +54,12 @@ def compute_mesh_structure(domain, kind: str = "layers") -> MeshStructure:
 
     Returns:
         A MeshStructure dataclass with the selected kind, layer count, and
-        (for layers mode) a deep-copied LayerState snapshot.
+        (for layers mode) a deep-copied LayerState snapshot, or (for medial_axis)
+        nodes and edges arrays.
 
     Raises:
         ValueError: If kind is not in VALID_KINDS.
-        NotImplementedError: If kind is "skeleton" or "medial_axis"
-            (not yet implemented).
+        NotImplementedError: If kind is "skeleton" (not yet implemented).
     """
     if kind not in VALID_KINDS:
         raise ValueError(
@@ -74,7 +81,6 @@ def compute_mesh_structure(domain, kind: str = "layers") -> MeshStructure:
         )
 
     if kind == "medial_axis":
-        raise NotImplementedError(
-            "kind='medial_axis' not yet implemented — see QuADMesh #55 / "
-            "specs/004-unified-mesh-structure/spec.md"
-        )
+        from ._medial_axis import medial_axis_graph
+        nodes, edges = medial_axis_graph(domain)
+        return MeshStructure(kind="medial_axis", n_layers=0, nodes=nodes, edges=edges)

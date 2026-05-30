@@ -1,7 +1,8 @@
 """MeshStructure tests (issue #55).
 
 Covers the unified entrypoint for mesh structure selection: layers (implemented),
-skeleton & medial_axis (not yet implemented, raise NotImplementedError).
+medial_axis (implemented via Voronoi-of-boundary interior ridges),
+skeleton (not yet implemented, raises NotImplementedError).
 """
 
 from __future__ import annotations
@@ -50,13 +51,35 @@ def test_skeleton_not_implemented(test_case_1):
         compute_mesh_structure(test_case_1, kind="skeleton")
 
 
-def test_medial_axis_not_implemented(test_case_1):
-    """kind='medial_axis' raises NotImplementedError."""
-    with pytest.raises(NotImplementedError):
-        compute_mesh_structure(test_case_1, kind="medial_axis")
-
-
 def test_invalid_kind_raises_valueerror(test_case_1):
     """Unknown kind raises ValueError with helpful message."""
     with pytest.raises(ValueError):
         compute_mesh_structure(test_case_1, kind="bogus")
+
+
+def test_medial_axis_returns_graph(test_case_1):
+    ms = compute_mesh_structure(test_case_1, kind="medial_axis")
+    assert ms.kind == "medial_axis"
+    assert ms.nodes is not None and ms.edges is not None
+    assert ms.nodes.ndim == 2 and ms.nodes.shape[1] == 2
+    assert ms.edges.ndim == 2 and ms.edges.shape[1] == 2
+    assert ms.nodes.shape[0] > 0 and ms.edges.shape[0] > 0
+    # edge indices reference valid nodes
+    assert int(ms.edges.max()) < ms.nodes.shape[0]
+    assert int(ms.edges.min()) >= 0
+
+
+def test_medial_axis_nodes_within_bbox(test_case_1):
+    P = np.asarray(test_case_1.points)[:, :2]
+    ms = compute_mesh_structure(test_case_1, kind="medial_axis")
+    assert (ms.nodes[:, 0] >= P[:, 0].min() - 1e-6).all()
+    assert (ms.nodes[:, 0] <= P[:, 0].max() + 1e-6).all()
+    assert (ms.nodes[:, 1] >= P[:, 1].min() - 1e-6).all()
+    assert (ms.nodes[:, 1] <= P[:, 1].max() + 1e-6).all()
+
+
+def test_medial_axis_deterministic(test_case_1):
+    a = compute_mesh_structure(test_case_1, kind="medial_axis")
+    b = compute_mesh_structure(test_case_1, kind="medial_axis")
+    assert np.array_equal(a.nodes, b.nodes)
+    assert np.array_equal(a.edges, b.edges)
