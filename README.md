@@ -22,7 +22,7 @@
   <a href="https://pypi.org/project/admesh2D/"><img src="https://img.shields.io/pypi/v/admesh2D.svg?label=PyPI" alt="PyPI version"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%2B-blue" alt="Python 3.10+"></a>
   <a href="https://github.com/domattioli/QuADMESH/actions/workflows/tests.yml"><img src="https://github.com/domattioli/QuADMESH/actions/workflows/tests.yml/badge.svg" alt="Tests"></a>
-  <a href="https://doi.org/10.5281/zenodo.20350483"><img src="https://zenodo.org/badge/119912466.svg" alt="DOI"></a>
+  <a href="https://doi.org/10.5281/zenodo.20351165"><img src="https://zenodo.org/badge/119912466.svg" alt="DOI"></a>
   <a href="https://github.com/domattioli/QuADMESH/issues"><img src="https://img.shields.io/github/issues/domattioli/QuADMESH.svg" alt="Open issues"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm%20NC%20%2B%20No--AI-red.svg" alt="License"></a>
 </p>
@@ -36,8 +36,6 @@
 - [Why QuADMESH](#why-quadmesh)           -- coming soon...
 - [Install](#install)                     -- coming soon...
 - [Quickstart](#quickstart)               -- coming soon...
-- [Tri2Quad](#tri2quad)
-- [Demo](#demo)
 - [Status &amp; roadmap](#status--roadmap) -- coming soon...
 - [Documentation](#documentation)          -- coming soon...
 - [Citation](#citation)
@@ -78,32 +76,6 @@ for historical reference; see [CHILmesh](https://github.com/domattioli/CHILmesh)
 
 ## Python port of MATLAB Functionality -- Coming very soon (est. June 2026)
 
-## Tri2Quad
-
-Step-by-step illustration of the Tri2Quad layer routine on a 6×6 vertex grid (50 triangles, three layers). Processes innermost layer first per MATLAB's `for iLayer = Domain.nLayers:-1:1` loop in `matlab/quadmesh/02_Tri2Quad_Routine/Tri2QuadRoutine.m`: walk CCW boundary path, flag every-other interior edge via element-flagging, merge each triangle pair into a quad.
-
-![Tri2Quad on 6x6 grid](videos/tri2quad_6x6_grid.gif)
-
-Higher-fidelity mp4: [`videos/tri2quad_6x6_grid.mp4`](videos/tri2quad_6x6_grid.mp4). Generator: [`videos/scripts/tri2quad_6x6_grid.py`](videos/scripts/tri2quad_6x6_grid.py).
-
-## Demo
-
-End-to-end QuADMESH+ run on a smaller annulus (131 tris / 79 verts / 3 layers), showing the algorithmic stages from `src/quadmesh/pipeline.py`: triangulated input → layer decomposition → `tri2quad_routine` → `post_process_routine` (doublet collapse, quad-vertex merge, angle + FEM smoothing).
-
-![Tri2Quad pipeline on annulus](videos/tri2quad_pipeline_annulus.gif)
-
-The faithful path is **quad-pure** — zero residual triangles in the output.
-
-Higher-fidelity mp4: [`videos/tri2quad_pipeline_annulus.mp4`](videos/tri2quad_pipeline_annulus.mp4). Generator: [`videos/scripts/tri2quad_pipeline_annulus.py`](videos/scripts/tri2quad_pipeline_annulus.py).
-
-Reproduce (manim — requires ffmpeg + cairo/pango system libs):
-
-```
-pip install -e . manim
-manim -qm videos/scripts/tri2quad_pipeline_annulus.py AnnulusPipelineScene
-```
-
-No-manim fallback (matplotlib only, GIF): `python videos/scripts/render_pipeline_gif.py`
 ## Status & roadmap
 As of May 2026 we are so back.
   - Currently porting the original code to Python
@@ -118,9 +90,9 @@ As of May 2026 we are so back.
 
 **This software** (cite the archived release):
 
-> Mattioli, DO, Kubatko, EJ (2026). QuADMESH: A Quadrangular ADvanced, automatic unstructured MESH generator for 2D hydrodynamic domains. Zenodo. <[https://doi.org/10.5281/zenodo.20264101](https://doi.org/10.5281/zenodo.20350484)>
+> Mattioli, DO, Kubatko, EJ (2026). QuADMESH: A Quadrangular ADvanced, automatic unstructured MESH generator for 2D hydrodynamic domains. Zenodo. <[https://doi.org/10.5281/zenodo.20351165](https://doi.org/10.5281/zenodo.20351165)>
 
-The DOI `10.5281/zenodo.20264101` resolves to the latest release; version-specific DOIs are listed on the [Zenodo record](https://doi.org/10.5281/zenodo.20350484). A [`CITATION.cff`](CITATION.cff) [will be] provided at the repo root for tools that consume it (GitHub's "Cite this repository" button, Zotero, etc.)
+The DOI `10.5281/zenodo.20351165` resolves to the latest release; version-specific DOIs are listed on the [Zenodo record](https://doi.org/10.5281/zenodo.20351165). A [`CITATION.cff`](CITATION.cff) [will be] provided at the repo root for tools that consume it (GitHub's "Cite this repository" button, Zotero, etc.)
 
 ## Related projects
 
