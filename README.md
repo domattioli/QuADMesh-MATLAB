@@ -27,7 +27,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-PolyForm%20NC%20%2B%20No--AI-red.svg" alt="License"></a>
 </p>
 
-> **Attention MATLAB users:** This Python library is the actively-developed successor to the original MATLAB codebase. That original code (no longer maintained) is frozen under [`matlab/quadmesh`](https://github.com/domattioli/QuADMESH/tree/main/matlab/quadmesh). Version 1.0.0 will come with a MATLAB wrapper of the modernized code (Est. Aug 2026).
+> **Attention MATLAB users:** This Python library is the actively-developed successor to the original MATLAB codebase. That original code (no longer maintained) is frozen under [`src/matlab/quadmesh`](https://github.com/domattioli/QuADMESH/tree/main/src/matlab/quadmesh). Version 1.0.0 will come with a MATLAB wrapper of the modernized code (Est. Aug 2026).
 
 ---
 
@@ -66,7 +66,7 @@ tests/          pytest suite; tests/fixtures/meshes/ holds .14 test meshes
 docs/           MAPPING.md (MATLAB→Python), session notes
 specs/          speckit specs/plans/tasks
 videos/         demo assets used in this README
-matlab/         frozen legacy MATLAB reference (not installable)
+src/matlab/     frozen legacy MATLAB reference (not installable)
 archive/        in-repo holding pen for future removal (upstream dups, .mat binaries)
 ```
 
