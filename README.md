@@ -35,7 +35,7 @@
 - [Tri2Quad](#tri2quad)
 - [Demo](#demo)
 - [Status &amp; roadmap](#status--roadmap) -- coming soon...
-- [Documentation](#documentation)          -- coming soon...
+- [Documentation](#documentation)
 - [Citation](#citation)
 - [Related projects](#Related-projects)
 - [Contact](#contact)
@@ -61,7 +61,7 @@ python -m quadmesh.cli in.14 -o out.14
 ```
 src/quadmesh/   Python package (the maintained implementation)
 tests/          pytest suite; tests/fixtures/meshes/ holds .14 test meshes
-docs/           MAPPING.md (MATLAB→Python), session notes
+docs/           MAPPING.md (MATLAB→Python), algorithm_writeup.md (graph theory), session notes
 specs/          speckit specs/plans/tasks
 videos/         demo assets used in this README
 matlab/         frozen legacy MATLAB reference (not installable)
@@ -106,6 +106,12 @@ As of May 2026 we are so back.
   - Next will optimize python, evaluate if C++ or Rust makes sense.
   - Finally going to implement it formally within a unifed ADMESH Library.
 
+## Documentation
+
+- [**Algorithm writeup**](docs/algorithm_writeup.md) — graph theory description of the tri-to-quad matching algorithm (triangle adjacency graph, interior-saturating matching, augmenting paths, layer priority, recombination operators).
+- [**MAPPING.md**](docs/MAPPING.md) — MATLAB → Python function map.
+- [**Thesis (PDF)**](docs/Mattioli_Thesis.pdf) — Mattioli (2017) full derivations, Ch 3–4.
+
 ## Citation
 
 **Algorithm / theory** (cite the original paper):
@@ -131,4 +137,3 @@ The DOI `10.5281/zenodo.20264101` resolves to the latest release; version-specif
 ## License
 
 **Noncommercial / research use only.** Licensed under the PolyForm Noncommercial License 1.0.0 **with an additional No-AI/ML-training restriction** — see [LICENSE](LICENSE) and [AI-USAGE.md](AI-USAGE.md). No commercial use and no use as AI/ML training data without a separate written license. Commercial or AI-training licenses: domburner@duck.com
-
