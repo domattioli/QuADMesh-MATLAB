@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <sub>Higher-fidelity <a href="videos/quadmesh_logo.mp4">mp4</a> · regenerate with <code>python videos/scripts/render_logo_gif.py</code> (matplotlib only, no ffmpeg).</sub>
+  <sub>Regenerate: <code>python videos/scripts/render_logo_gif.py</code> (matplotlib only, no ffmpeg).</sub>
 </p>
 
 <h1 align="center">QuADMESH</h1>
