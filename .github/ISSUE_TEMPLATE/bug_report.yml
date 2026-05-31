@@ -1,0 +1,65 @@
+name: Bug Report
+description: Report a defect or unexpected behavior in QuADMESH
+title: "bug: "
+labels: ["type: bug", "priority: normal", "status: ready"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please fill out the sections below so the issue can be reproduced and triaged.
+  - type: input
+    id: affected-component
+    attributes:
+      label: Affected module or file
+      description: Which file, class, or method is implicated?
+      placeholder: "e.g. src/quadmesh/tri2quad.py, QuADMESH._match_pairs"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug. Paste full tracebacks or error messages verbatim.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Minimal reproduction
+      description: Smallest code snippet (or test command) that triggers the bug.
+      render: python
+      placeholder: |
+        from quadmesh import QuADMESH
+        q = QuADMESH(tri_mesh)
+        q.run()
+    validations:
+      required: true
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      placeholder: "e.g. 3.11.7"
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - "now"
+        - "normal"
+        - "someday"
+      default: 1
+    validations:
+      required: true
+  - type: textarea
+    id: related
+    attributes:
+      label: Related issues, PRs, or code references
+      placeholder: "e.g. #12, src/quadmesh/tri2quad.py:85"
