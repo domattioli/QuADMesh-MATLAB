@@ -22,6 +22,8 @@ def run_pipeline(
     max_outer_iter: int = 5,
     max_inner_iter: int = 5,
     method: str = "matching",
+    truss_smooth: bool = False,
+    truss_fh=None,
 ) -> CHILmesh:
     """Full create_quad_domain → tri2quad → post_process sweep.
 
@@ -35,6 +37,8 @@ def run_pipeline(
         max_inner_iter: Inner loop cap (doublet + QVM) in post_process_routine.
         method: tri2quad pairing method — ``"faithful"`` (default) or
             ``"faithful"`` (layer-ordered sweep, quad-pure output).
+        truss_smooth: If True, apply truss_smoother before fem_smoother.
+        truss_fh: Callable or None. Target edge length function for truss_smoother.
 
     Returns:
         Final quad CHILmesh.
@@ -50,5 +54,7 @@ def run_pipeline(
             n_smooth_iter=n_smooth_iter,
             max_outer_iter=max_outer_iter,
             max_inner_iter=max_inner_iter,
+            truss_smooth=truss_smooth,
+            truss_fh=truss_fh,
         )
     return quad

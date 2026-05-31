@@ -68,6 +68,109 @@ def _balendran_smooth(mesh: "CHILmesh") -> "np.ndarray":
     return new_pts
 
 
+def truss_smoother(
+    mesh: CHILmesh,
+    fh=None,
+    h0: float = None,
+    n_iter: int = 200,
+    deltat: float = 0.2,
+    dptol: float = 1e-3,
+) -> CHILmesh:
+    """Spring-force mesh smoother via quad-to-4tri fan + frozen edge set.
+
+    Splits each quad into 4 triangles sharing a centroid, extracts edge topology,
+    then applies spring forces (distmesh2d-style) with frozen edges. Interior
+    nodes move; boundary nodes pinned. Returns mesh with original quad vertices
+    repositioned, centroids discarded.
+    """
+    import numpy as np
+
+    p = mesh.points[:, :2].copy()
+    n_orig = len(p)
+
+    # Get quads from connectivity; build 4-tri fan per quad with centroid
+    _conn = np.asarray(mesh.connectivity_list)
+    quads = [elem for elem in _conn if len(elem) == 4]
+    if not quads:
+        return mesh  # No quads; return unchanged
+
+    quads = np.asarray(quads)
+    centroids = p[quads].mean(axis=1)  # (n_quads, 2)
+    n_quads = len(quads)
+
+    # Build p_ext: original points + centroids
+    p_ext = np.vstack([p, centroids])
+
+    # Compute h0 if not provided: median of quad edge lengths
+    if h0 is None:
+        quad_edges = np.concatenate([
+            quads[:, [0, 1]], quads[:, [1, 2]],
+            quads[:, [2, 3]], quads[:, [3, 0]]
+        ])
+        edge_vecs = p[quad_edges[:, 1]] - p[quad_edges[:, 0]]
+        edge_lens = np.linalg.norm(edge_vecs, axis=1)
+        h0 = np.median(edge_lens)
+
+    # Extract edges from 4-tri fan: for each quad, add 8 edges
+    # (4 perimeter + 4 centroid-to-corner)
+    bar = []
+    for i, quad in enumerate(quads):
+        v0, v1, v2, v3 = quad
+        c_idx = n_orig + i
+        # Perimeter edges
+        bar.extend([[v0, v1], [v1, v2], [v2, v3], [v3, v0]])
+        # Centroid edges
+        bar.extend([[c_idx, v0], [c_idx, v1], [c_idx, v2], [c_idx, v3]])
+
+    bar = np.asarray(bar)
+
+    # Get boundary nodes
+    edge_verts = mesh.edge2vert(mesh.boundary_edges())
+    boundary_nodes = np.unique(edge_verts.flatten()).astype(int)
+
+    # Spring-force loop
+    for iteration in range(n_iter):
+        # Compute current edge vectors and lengths
+        dL = p_ext[bar[:, 1]] - p_ext[bar[:, 0]]
+        Lbar = np.linalg.norm(dL, axis=1)
+
+        # Compute target lengths
+        if fh is not None:
+            midpoints = (p_ext[bar[:, 0]] + p_ext[bar[:, 1]]) / 2
+            L0 = fh(midpoints)
+        else:
+            L0 = np.full_like(Lbar, h0)
+
+        # Compute edge forces (bidirectional, no clipping)
+        denom = np.maximum(Lbar, 1e-10)
+        Fbar = (L0 - Lbar) / denom
+        F_edge = Fbar[:, None] * dL / np.maximum(Lbar[:, None], 1e-10)
+
+        # Accumulate forces per node
+        F = np.zeros_like(p_ext)
+        np.add.at(F, bar[:, 0], -F_edge)
+        np.add.at(F, bar[:, 1], F_edge)
+
+        # Zero boundary forces
+        F[boundary_nodes] = 0
+
+        # Update positions
+        movement = deltat * F
+        p_ext = p_ext + movement
+
+        # Convergence check
+        max_move = np.max(np.linalg.norm(movement, axis=1))
+        if max_move / h0 < dptol:
+            break
+
+    # Extract original quad vertices; discard centroids
+    new_p = mesh.points.copy()
+    new_p[:n_orig, :2] = p_ext[:n_orig]
+
+    mesh.points[:, :2] = new_p[:n_orig, :2]
+    return mesh
+
+
 def fem_smoother(
     mesh: CHILmesh,
     n_iter: int = 3,
@@ -110,6 +213,8 @@ def post_process_routine(
     max_outer_iter: int = 5,
     max_inner_iter: int = 5,
     repair: bool = False,
+    truss_smooth: bool = False,
+    truss_fh=None,
 ) -> CHILmesh:
     """Iteratively improve quad-mesh quality.
 
@@ -124,6 +229,8 @@ def post_process_routine(
             clusters. Off by default (element count + quality drift can
             break parity baselines); opt-in via ``repair=True`` or call
             ``repair_chilmesh`` directly after this routine.
+        truss_smooth: If True, apply truss_smoother before fem_smoother.
+        truss_fh: Callable or None. Target edge length function for truss_smoother.
     """
     outer = 0
     n_elems_prev = mesh.n_elems
@@ -144,6 +251,9 @@ def post_process_routine(
         if mesh.n_elems >= n_elems_prev:
             break
         n_elems_prev = mesh.n_elems
+
+    if truss_smooth:
+        mesh = truss_smoother(mesh, fh=truss_fh)
 
     mesh = fem_smoother(mesh, n_iter=n_smooth_iter)
 
