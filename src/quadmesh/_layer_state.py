@@ -1,4 +1,4 @@
-"""Mutable working copy of CHILmesh skeletonization layers (T012).
+"""Mutable working copy of CHILmesh layer decomposition (T012).
 
 The faithful tri2quad sweep mutates per-layer element/vertex membership as it
 clears leftover triangles: ``edge_bisection`` and ``edge_insertion`` move tris

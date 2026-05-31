@@ -115,6 +115,10 @@ def validate_mesh_elements(
     layers = getattr(mesh, "layers", None)
     layer0_elems: set[int] = set()
     if layers is None or not layers.get("OE"):
+        # `_skeletonize` is CHILmesh's internal method for computing its
+        # concentric layer decomposition (not an image-style skeleton).
+        # See QuADMesh #55 / specs/055-skeletonization-rename/spec.md for the
+        # terminology distinction. Do not rename this call — it is CHILmesh's API.
         if hasattr(mesh, "_skeletonize"):
             try:
                 mesh._skeletonize()
@@ -122,7 +126,7 @@ def validate_mesh_elements(
                     InformationalNote(
                         "LAYERS_AUTO_TRIGGERED",
                         (),
-                        "validator triggered mesh._skeletonize() for FR-007",
+                        "validator triggered mesh._skeletonize() (CHILmesh layer decomposition) for FR-007",
                     )
                 )
             except Exception as exc:  # pragma: no cover

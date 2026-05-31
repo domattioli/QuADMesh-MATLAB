@@ -48,10 +48,15 @@ def test_working_mesh_add_quad():
 
 
 def test_working_mesh_add_point():
-    """WorkingMesh.add_point extends points array."""
+    """WorkingMesh.add_point buffers into _extra_pts (not points); n_pts grows."""
     pts = np.zeros((3, 3))
     work = WorkingMesh(points=pts, quads=[])
     new_idx = work.add_point(np.array([1.0, 2.0]))
+    # index is 3 (one past the original 3 points)
     assert new_idx == 3
-    assert work.points.shape[0] == 4
-    np.testing.assert_allclose(work.points[3, :2], [1.0, 2.0])
+    # n_pts counter reflects the buffered point
+    assert work.n_pts == 4
+    # original points array is NOT mutated — buffered in _extra_pts until flush
+    assert work.points.shape[0] == 3
+    # the buffered point is accessible via get_extra_point
+    np.testing.assert_allclose(work.get_extra_point(3)[:2], [1.0, 2.0])

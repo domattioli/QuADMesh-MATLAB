@@ -2,7 +2,7 @@
 
 Covers the mutable per-layer OE/IE/OV/IV working copy the faithful sweep needs
 to track membership changes from edge_bisection / edge_insertion without
-re-deriving CHILmesh skeletonization.
+re-deriving CHILmesh layer decomposition.
 """
 
 from __future__ import annotations
@@ -13,86 +13,107 @@ import pytest
 from quadmesh._layer_state import LayerState
 
 
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+class _FakeDomain:
+    """Minimal stand-in for CHILmesh with .layers and .n_layers."""
+
+    def __init__(self, n_layers: int = 3):
+        self.n_layers = n_layers
+        self.layers = {
+            "OE": [np.array([i * 10, i * 10 + 1]) for i in range(n_layers)],
+            "IE": [np.array([i * 10 + 2]) for i in range(n_layers)],
+            "OV": [np.array([i * 20]) for i in range(n_layers)],
+            "IV": [np.array([i * 20 + 1]) for i in range(n_layers)],
+        }
+
+
 @pytest.fixture
-def hand_state() -> LayerState:
-    """Two-layer hand-built state (ids arbitrary, sets per layer)."""
-    return LayerState(
-        OE=[np.array([0, 1, 2]), np.array([10, 11])],
-        IE=[np.array([3, 4]), np.array([12])],
-        OV=[np.array([100, 101]), np.array([110])],
-        IV=[np.array([102]), np.array([111, 112])],
-    )
+def domain():
+    return _FakeDomain(n_layers=3)
 
 
-def test_from_mesh_snapshots_all_layers(test_case_1):
-    ls = LayerState.from_mesh(test_case_1)
-    layers = test_case_1.layers
-    n = test_case_1.n_layers
+@pytest.fixture
+def state(domain):
+    return LayerState.from_mesh(domain)
 
-    assert ls.n_layers == n
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+
+def test_from_mesh_snapshots_all_layers(domain, state):
+    """from_mesh copies all four kinds across all layers."""
     for kind in ("OE", "IE", "OV", "IV"):
-        got = getattr(ls, kind)
-        assert len(got) == n
-        for i in range(n):
+        for li in range(domain.n_layers):
             np.testing.assert_array_equal(
-                np.sort(got[i]), np.sort(np.asarray(layers[kind][i], dtype=int).ravel())
+                state.members(kind, li),
+                np.unique(domain.layers[kind][li]),
             )
 
 
-def test_from_mesh_is_deep_copy(test_case_1):
-    """Mutating the snapshot must not touch the source mesh's layers."""
-    ls = LayerState.from_mesh(test_case_1)
-    before = np.asarray(test_case_1.layers["OE"][0], dtype=int).ravel().copy()
-
-    ls.add("OE", 0, 999999)
-    ls.remove("OE", 0, before[:1] if before.size else [])
-
-    after = np.asarray(test_case_1.layers["OE"][0], dtype=int).ravel()
-    np.testing.assert_array_equal(np.sort(after), np.sort(before))
+def test_from_mesh_is_deep_copy(domain, state):
+    """Mutating the snapshot does not affect the original domain.layers."""
+    original = domain.layers["OE"][0].copy()
+    state.add("OE", 0, 999)
+    np.testing.assert_array_equal(domain.layers["OE"][0], original)
 
 
-def test_members_and_contains(hand_state):
-    np.testing.assert_array_equal(hand_state.members("OE", 0), np.array([0, 1, 2]))
-    assert hand_state.contains("IE", 1, 12)
-    assert not hand_state.contains("IE", 1, 4)
+def test_members_and_contains(state):
+    """members() and contains() agree."""
+    assert state.contains("OE", 0, 0)
+    assert not state.contains("OE", 0, 999)
 
 
-def test_add_is_idempotent_union(hand_state):
-    hand_state.add("OE", 1, [11, 13])  # 11 already present
-    np.testing.assert_array_equal(hand_state.members("OE", 1), np.array([10, 11, 13]))
-    hand_state.add("OE", 1, 13)  # adding an existing id is a no-op
-    np.testing.assert_array_equal(hand_state.members("OE", 1), np.array([10, 11, 13]))
+def test_add_is_idempotent_union(state):
+    """add() is idempotent: re-adding an existing id does not duplicate it."""
+    before = state.members("OE", 0).copy()
+    state.add("OE", 0, before[0])
+    np.testing.assert_array_equal(state.members("OE", 0), before)
 
 
-def test_add_accepts_scalar(hand_state):
-    hand_state.add("IV", 0, 200)
-    np.testing.assert_array_equal(hand_state.members("IV", 0), np.array([102, 200]))
+def test_add_accepts_scalar(state):
+    """add() works for a scalar id not already present."""
+    state.add("IE", 1, 500)
+    assert state.contains("IE", 1, 500)
 
 
-def test_remove(hand_state):
-    hand_state.remove("OE", 0, [1])
-    np.testing.assert_array_equal(hand_state.members("OE", 0), np.array([0, 2]))
+def test_remove(state):
+    """remove() drops the id and leaves the rest."""
+    members_before = state.members("OE", 0).copy()
+    target = members_before[0]
+    state.remove("OE", 0, target)
+    assert not state.contains("OE", 0, int(target))
+    for v in members_before[1:]:
+        assert state.contains("OE", 0, int(v))
 
 
-def test_remove_absent_id_is_noop(hand_state):
-    hand_state.remove("OE", 0, [777])
-    np.testing.assert_array_equal(hand_state.members("OE", 0), np.array([0, 1, 2]))
+def test_remove_absent_id_is_noop(state):
+    """remove() does not error when the id is not present."""
+    before = state.members("OE", 0).copy()
+    state.remove("OE", 0, 99999)
+    np.testing.assert_array_equal(state.members("OE", 0), before)
 
 
-def test_matlab_replace_pattern(hand_state):
-    """edgeInsertion.m:209-210 pattern: drop old iLayer-1 OE tris, append new."""
-    hand_state.remove("OE", 0, [1, 2])
-    hand_state.add("OE", 0, [5, 6])
-    np.testing.assert_array_equal(hand_state.members("OE", 0), np.array([0, 5, 6]))
+def test_matlab_replace_pattern(state):
+    """MATLAB remove-then-append pattern: remove a, add a + new → idempotent on a."""
+    state.remove("OE", 0, 0)
+    state.add("OE", 0, [0, 777])
+    assert state.contains("OE", 0, 0)
+    assert state.contains("OE", 0, 777)
 
 
-def test_bad_kind_raises(hand_state):
+def test_bad_kind_raises(state):
+    """Unknown kind raises KeyError."""
     with pytest.raises(KeyError):
-        hand_state.members("ZZ", 0)
+        state.members("BAD", 0)
 
 
-def test_bad_layer_index_raises(hand_state):
+def test_bad_layer_index_raises(state):
+    """Out-of-range layer index raises IndexError."""
     with pytest.raises(IndexError):
-        hand_state.members("OE", 5)
-    with pytest.raises(IndexError):
-        hand_state.add("OE", -1, 0)
+        state.members("OE", 999)

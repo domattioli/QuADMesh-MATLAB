@@ -4,7 +4,7 @@ This module provides a single selectable entrypoint distinguishing three
 related-but-distinct mesh structures:
 
 - **layers** (currently implemented): outer/inner edge & vertex sets per
-  skeletonization layer, computed by CHILmesh and read from ``domain.layers``.
+  layer decomposition ring, computed by CHILmesh and read from ``domain.layers``.
   See ``LayerState`` in ``_layer_state.py`` for the mutable per-layer working
   copy the faithful sweep uses.
 
@@ -75,9 +75,10 @@ def compute_mesh_structure(domain, kind: str = "layers") -> MeshStructure:
 
     if kind == "skeleton":
         raise NotImplementedError(
-            "kind='skeleton' not yet implemented — image-style skeleton/"
-            "medial-axis is distinct from chilmesh layers; tracked by "
-            "QuADMesh #55 / specs/004-unified-mesh-structure/spec.md"
+            "kind='skeleton' not yet implemented — image-style skeleton "
+            "(distance-transform thinning) is distinct from both chilmesh "
+            "layer decomposition and the medial axis. Concept is being scoped "
+            "by operator; see QuADMesh #55 / specs/055-skeletonization-rename/spec.md"
         )
 
     if kind == "medial_axis":
