@@ -25,7 +25,7 @@ Conventional src-layout Python package (reorganized 2026-05-24, was numeric-pref
 - `docs/MAPPING.md` — MATLAB → Python function map + chilmesh gaps.
 - `docs/sessions/session-NNN.md` — per-session handoff notes.
 - `specs/001-matlab-to-python-port/`, `specs/003-root-reorg/` — speckit spec/plan/tasks.
-- `matlab/` — frozen legacy MATLAB reference (was `02_QuADMESH_Library/`, `04_CHIL_Supporting_Functions/`). Not installable.
+- `src/matlab/` — frozen legacy MATLAB reference (was `02_QuADMESH_Library/`, `04_CHIL_Supporting_Functions/`). Not installable.
 - `archive/` — in-repo holding pen for future removal: MATLAB `@CHILmesh`/ADMESH dups of upstream repos, `.mat` binaries, old results.
 - `videos/` — README demo assets.
 
