@@ -124,12 +124,66 @@ def truss_smoother(
 
     bar = np.asarray(bar)
 
+    # Compute initial rest lengths for centroid bars (structural-only springs)
+    L0_init = np.linalg.norm(p_ext[bar[:, 1]] - p_ext[bar[:, 0]], axis=1)
+    is_centroid_bar = (bar[:, 0] >= n_orig) | (bar[:, 1] >= n_orig)
+
+    # Build per-node local h0 when fh is None
+    if fh is None:
+        local_h0 = np.zeros(len(p_ext))
+
+        # Compute local h0 for original nodes (0..n_orig-1)
+        quad_edges = np.concatenate([
+            quads[:, [0, 1]], quads[:, [1, 2]],
+            quads[:, [2, 3]], quads[:, [3, 0]]
+        ])
+        edge_vecs = p[quad_edges[:, 1]] - p[quad_edges[:, 0]]
+        edge_lens = np.linalg.norm(edge_vecs, axis=1)
+
+        for v in range(n_orig):
+            mask = (quad_edges[:, 0] == v) | (quad_edges[:, 1] == v)
+            if np.any(mask):
+                local_h0[v] = np.median(edge_lens[mask])
+            else:
+                local_h0[v] = h0  # fallback to global median
+
+        # Compute local h0 for centroid nodes (n_orig..n_orig+n_quads-1)
+        for i, quad in enumerate(quads):
+            quad_edge_lens = edge_lens[i*4:(i+1)*4]
+            local_h0[n_orig + i] = np.median(quad_edge_lens)
+
     # Get boundary nodes
     edge_verts = mesh.edge2vert(mesh.boundary_edges())
     boundary_nodes = np.unique(edge_verts.flatten()).astype(int)
 
+    # Pre-compute quad corner and centroid indices for inversion checking
+    quad_corner_idx = quads  # (n_quads, 4)
+    centroid_idx = np.arange(n_orig, n_orig + n_quads)  # (n_quads,)
+
+    # Helper function to compute signed area of quads
+    def _quad_signed_area(p, quad_indices):
+        """Compute signed area of quads using shoelace formula.
+
+        Args:
+            p: (n_points, 2) array of point positions
+            quad_indices: (n_quads, 4) array of quad vertex indices
+
+        Returns:
+            (n_quads,) array of signed areas
+        """
+        v = p[quad_indices]  # (n_quads, 4, 2)
+        # Shoelace formula: sum of cross products of consecutive edges
+        a = v[:, 0, 0] * v[:, 1, 1] - v[:, 1, 0] * v[:, 0, 1]
+        a += v[:, 1, 0] * v[:, 2, 1] - v[:, 2, 0] * v[:, 1, 1]
+        a += v[:, 2, 0] * v[:, 3, 1] - v[:, 3, 0] * v[:, 2, 1]
+        a += v[:, 3, 0] * v[:, 0, 1] - v[:, 0, 0] * v[:, 3, 1]
+        return 0.5 * a
+
     # Spring-force loop
     for iteration in range(n_iter):
+        # Save previous positions before movement
+        p_ext_prev = p_ext.copy()
+
         # Compute current edge vectors and lengths
         dL = p_ext[bar[:, 1]] - p_ext[bar[:, 0]]
         Lbar = np.linalg.norm(dL, axis=1)
@@ -139,11 +193,15 @@ def truss_smoother(
             midpoints = (p_ext[bar[:, 0]] + p_ext[bar[:, 1]]) / 2
             L0 = fh(midpoints)
         else:
-            L0 = np.full_like(Lbar, h0)
+            # Use per-edge local h0: average of endpoint local h0 values
+            L0 = 0.5 * (local_h0[bar[:, 0]] + local_h0[bar[:, 1]])
+
+        # Centroid bars are structural-only: use initial rest length
+        L0[is_centroid_bar] = L0_init[is_centroid_bar]
 
         # Compute edge forces (bidirectional, no clipping)
         denom = np.maximum(Lbar, 1e-10)
-        Fbar = (L0 - Lbar) / denom
+        Fbar = np.maximum(L0 - Lbar, 0.0) / denom
         F_edge = Fbar[:, None] * dL / np.maximum(Lbar[:, None], 1e-10)
 
         # Accumulate forces per node
@@ -157,6 +215,21 @@ def truss_smoother(
         # Update positions
         movement = deltat * F
         p_ext = p_ext + movement
+
+        # Inversion guard: check for newly inverted quads and revert if needed
+        areas_prev = _quad_signed_area(p_ext_prev, quad_corner_idx)
+        areas_new = _quad_signed_area(p_ext, quad_corner_idx)
+
+        # A quad is "newly inverted" if it was positive before and non-positive now
+        newly_inverted = (areas_prev > 0) & (areas_new <= 0)
+
+        # Revert corner nodes and centroid for any newly inverted quad
+        inverted_quad_ids = np.where(newly_inverted)[0]
+        for quad_id in inverted_quad_ids:
+            # Revert the 4 corner nodes
+            p_ext[quad_corner_idx[quad_id]] = p_ext_prev[quad_corner_idx[quad_id]]
+            # Revert the centroid node
+            p_ext[centroid_idx[quad_id]] = p_ext_prev[centroid_idx[quad_id]]
 
         # Convergence check
         max_move = np.max(np.linalg.norm(movement, axis=1))
